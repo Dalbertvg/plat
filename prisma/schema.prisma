@@ -1,0 +1,287 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ORGANIZAÇÃO — Secretaria → Divisão
+// ============================================================================
+model Secretaria {
+  id       String @id
+  nome     String
+  titular  String?
+  tipo     String  @default("secretaria") // "secretaria" | "gabinete"
+
+  divisoes           Divisao[]
+  lotacoes           Lotacao[]
+  metasLP            MetaLP[]
+  metasCPDona        MetaCP[]      @relation("MetaCPDona")
+  metasCPParticipa   MetaCPParticipante[]
+  propostas          Proposta[]
+}
+
+model Divisao {
+  id            String @id
+  nome          String
+  secretariaId  String
+  secretaria    Secretaria @relation(fields: [secretariaId], references: [id])
+  chefeId       String?
+
+  lotacoes      Lotacao[]
+  metasCPExec   MetaCP[]  @relation("DivisaoExecutora")
+  propostas     Proposta[]
+
+  @@index([secretariaId])
+}
+
+// ============================================================================
+// USUÁRIOS + LOTAÇÕES (multi)
+// ============================================================================
+model Usuario {
+  id            String   @id
+  nome          String
+  email         String   @unique // sempre gravado em minúsculas
+  perfil        String   // "prefeito" | "secretario" | "chefe"
+  ativo         Boolean  @default(true)
+  ultimoAcesso  DateTime?
+
+  // Hash bcrypt. Nunca existe conta sem senha: contas são criadas só pelo
+  // administrador (seed ou /usuarios/novo), com senha inicial gerada no servidor.
+  senhaHash     String
+  // Incrementar invalida todas as sessões (JWT) já emitidas para o usuário:
+  // o valor viaja no token e é conferido contra o banco a cada requisição.
+  sessaoVersao  Int      @default(0)
+
+  lotacoes            Lotacao[]
+  propostasAutoradas  Proposta[]  @relation("PropostaAutor")
+  acoesResponsavel    Acao[]      @relation("AcaoResponsavel")
+  auditoria           Auditoria[]
+  comentarios         Comentario[]
+  anexosEnviados      Anexo[]     @relation("AnexoAutor")
+}
+
+model Lotacao {
+  id            String   @id @default(cuid())
+  usuarioId     String
+  secretariaId  String
+  divisaoId     String?
+
+  usuario     Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  secretaria  Secretaria  @relation(fields: [secretariaId], references: [id])
+  divisao     Divisao?    @relation(fields: [divisaoId], references: [id])
+
+  @@unique([usuarioId, secretariaId, divisaoId])
+  @@index([usuarioId])
+  @@index([secretariaId])
+  @@index([divisaoId])
+}
+
+// ============================================================================
+// METAS + AÇÕES
+// ============================================================================
+model MetaLP {
+  id            String @id
+  capitulo      String
+  titulo        String
+  secretariaDonaId String
+  secretariaDona   Secretaria @relation(fields: [secretariaDonaId], references: [id])
+
+  metasCP  MetaCP[]
+
+  @@index([secretariaDonaId])
+}
+
+model MetaCP {
+  id                    String @id
+  nome                  String
+  tipo                  String @default("secundaria") // "principal" (plano de governo) | "secundaria"
+  metaLPId              String
+  secretariaDonaId      String
+  divisaoExecutoraId    String
+  criadoEm              DateTime @default(now())
+
+  // "Excluir" pelo prefeito nunca apaga de fato — arquiva, com justificativa
+  // obrigatória. Preserva histórico de ações/propostas/auditoria vinculadas.
+  arquivada              Boolean   @default(false)
+  arquivadaEm            DateTime?
+  arquivadaPor           String?
+  arquivadaJustificativa String?
+
+  metaLP             MetaLP     @relation(fields: [metaLPId], references: [id])
+  secretariaDona     Secretaria @relation("MetaCPDona", fields: [secretariaDonaId], references: [id])
+  divisaoExecutora   Divisao    @relation("DivisaoExecutora", fields: [divisaoExecutoraId], references: [id])
+
+  participantes  MetaCPParticipante[]
+  acoes          Acao[]
+
+  @@index([secretariaDonaId])
+  @@index([divisaoExecutoraId])
+  @@index([arquivada])
+}
+
+model MetaCPParticipante {
+  metaCPId      String
+  secretariaId  String
+
+  metaCP       MetaCP      @relation(fields: [metaCPId], references: [id], onDelete: Cascade)
+  secretaria   Secretaria  @relation(fields: [secretariaId], references: [id])
+
+  @@id([metaCPId, secretariaId])
+}
+
+model Acao {
+  id                String   @id
+  metaCPId          String
+  nome              String
+  peso              Int
+  tempoNecessario   String?  // "ate_6m" | "7_12m" | "13_24m" | "25_36m" | "acima_36m"
+  alvo              Float
+  unidade           String?  // "%" | "un" | "R$" | "h" | "dias" | outro
+  situacaoAtual     Float
+  status            String   // "andamento" | "atraso" | "concluida"
+  inicio            String?
+  prazo             String?
+  responsavelId     String?
+  ultJustificativa  String?
+  ultJustQuando     DateTime?
+
+  metaCP        MetaCP    @relation(fields: [metaCPId], references: [id], onDelete: Cascade)
+  responsavel   Usuario?  @relation("AcaoResponsavel", fields: [responsavelId], references: [id])
+  snapshots     AcaoSnapshot[]
+  anexos        Anexo[]
+
+  @@index([metaCPId])
+  @@index([responsavelId])
+}
+
+// Arquivo de evidência da execução de uma ação (PDF, foto…).
+//
+// Guarda a CHAVE opaca no storage, nunca uma URL pública: o download passa
+// sempre por uma rota autenticada que confere o RBAC da ação antes de servir o
+// arquivo (disco local) ou emitir uma URL pré-assinada de curta duração (S3).
+model Anexo {
+  id             String   @id @default(cuid())
+  acaoId         String
+  nomeOriginal   String   // só para exibição/download; nunca usado como caminho
+  mimeType       String   // detectado pelos bytes do arquivo, não pela extensão
+  tamanhoBytes   Int
+  sha256         String
+  storageDriver  String   // "local" | "s3"
+  storageKey     String   @unique // gerada pelo servidor
+  enviadoPorId   String
+  criadoEm       DateTime @default(now())
+
+  // Restrict: evidência não some junto com a ação; o arquivo físico precisa
+  // ser tratado explicitamente antes de uma exclusão.
+  acao        Acao     @relation(fields: [acaoId], references: [id], onDelete: Restrict)
+  enviadoPor  Usuario  @relation("AnexoAutor", fields: [enviadoPorId], references: [id])
+
+  @@index([acaoId])
+}
+
+// Snapshot da situação de cada ação a cada atualização.
+// Permite comparar progresso vs. 30 dias atrás (ou qualquer janela).
+model AcaoSnapshot {
+  id            String   @id @default(cuid())
+  acaoId        String
+  situacaoAtual Float
+  peso          Int      // peso vigente no momento do snapshot
+  quando        DateTime @default(now())
+
+  acao  Acao  @relation(fields: [acaoId], references: [id], onDelete: Cascade)
+
+  @@index([acaoId, quando])
+  @@index([quando])
+}
+
+// ============================================================================
+// PROPOSTAS
+// ============================================================================
+model Proposta {
+  id                String   @id
+  titulo            String
+  descricao         String?
+  tipo              String   // "nova" | "edicao" | "ajuste_acao"
+  autorId           String
+  secretariaDonaId  String
+  divisaoOrigemId   String?
+  metaCPRefId       String?  // meta alvo, quando tipo="edicao" ou "ajuste_acao"
+  proximoRevisor    String   // "chefe" | "secretario" | "prefeito"
+  status            String   @default("pendente") // "pendente" | "aprovada" | "rejeitada"
+  criadoEm          DateTime @default(now())
+  aprovadaEm        DateTime?
+  aprovadaPor       String?
+  rejeitadaEm       DateTime?
+  rejeitadaPor      String?
+
+  // Patch estruturado que descreve os campos a alterar. Preenchido quando a
+  // pessoa usa o form guiado (não texto livre). Interpretação depende de `tipo`:
+  //   ajuste_acao → { acaoId, nome?, tempoNecessario?, alvo?, unidade?, responsavelId?, inicio? }
+  //   edicao      → { nome?, divisaoExecutoraId? }
+  //   nova        → { nome, metaLPId, secretariaDonaId, divisaoExecutoraId, participantes? }
+  payloadJson       String?
+  aplicadaEm        DateTime?  // quando applyProposta rodou (null se ainda não aplicou)
+  aplicacaoErro     String?    // captura de erro se a aplicação falhou
+
+  autor          Usuario      @relation("PropostaAutor", fields: [autorId], references: [id])
+  secretariaDona Secretaria   @relation(fields: [secretariaDonaId], references: [id])
+  divisaoOrigem  Divisao?     @relation(fields: [divisaoOrigemId], references: [id])
+  comentarios    Comentario[]
+
+  @@index([status])
+  @@index([proximoRevisor])
+}
+
+model Comentario {
+  id          String   @id @default(cuid())
+  propostaId  String
+  autorId     String
+  texto       String
+  quando      DateTime @default(now())
+
+  proposta  Proposta  @relation(fields: [propostaId], references: [id], onDelete: Cascade)
+  autor     Usuario   @relation(fields: [autorId], references: [id])
+
+  @@index([propostaId])
+}
+
+// ============================================================================
+// AUDITORIA
+// ============================================================================
+model Auditoria {
+  id           String   @id @default(cuid())
+  quando       DateTime @default(now())
+  atorId       String
+  atorNome     String
+  perfil       String
+  msg          String
+  tag          String
+  entidade     String
+  entidadeId   String
+  lotacaoUsada String?
+  parentId     String?
+
+  ator      Usuario     @relation(fields: [atorId], references: [id])
+  parent    Auditoria?  @relation("AuditoriaResposta", fields: [parentId], references: [id])
+  respostas Auditoria[] @relation("AuditoriaResposta")
+
+  @@index([quando])
+  @@index([entidade, entidadeId])
+  @@index([parentId])
+}
+
+// ============================================================================
+// RATE LIMIT — janela fixa, persistida no Postgres para valer entre processos
+// (PM2 cluster) e sobreviver a reinícios. Ver src/lib/rate-limit.ts.
+// ============================================================================
+model RateLimit {
+  chave     String   @id
+  contagem  Int      @default(0)
+  expiraEm  DateTime
+
+  @@index([expiraEm])
+}

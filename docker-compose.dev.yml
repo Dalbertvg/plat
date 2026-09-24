@@ -1,0 +1,20 @@
+# Postgres apenas para DESENVOLVIMENTO local. Em produção (VPS) o Postgres roda
+# como serviço do sistema, com senha forte e acessível só por 127.0.0.1.
+#   docker compose -f docker-compose.dev.yml up -d
+# Porta 55432 no host porque esta máquina já tem um Postgres nativo na 5432.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: planometas-postgres
+    environment:
+      POSTGRES_USER: planometas
+      POSTGRES_PASSWORD: planometas_dev
+      POSTGRES_DB: planometas
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - planometas_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  planometas_pgdata:

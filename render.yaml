@@ -1,0 +1,50 @@
+# Blueprint do Render: cria o banco e o site de uma vez.
+# Painel do Render → New → Blueprint → escolher este repositório.
+#
+# PLANOS: começa tudo no gratuito para testar. ANTES de cadastrar dados reais,
+# troque o banco para um plano pago no painel — o Postgres gratuito é APAGADO
+# 30 dias após a criação (+14 dias de carência), com todos os dados.
+# O site gratuito "dorme" após 15 min sem acesso (o 1º acesso leva ~1 min).
+
+databases:
+  - name: planometas-db
+    databaseName: planometas
+    user: planometas
+    plan: free
+    region: virginia          # sem região no Brasil; Virginia é a de menor latência
+    postgresMajorVersion: "16"
+    ipAllowList: []           # nenhum acesso externo: só o site (rede privada) conecta
+
+services:
+  - type: web
+    name: plano-de-metas
+    runtime: node
+    plan: free
+    region: virginia          # precisa ser a mesma do banco (rede privada)
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    # A cada start: 1) cria/atualiza as tabelas (migrate deploy — idempotente,
+    # nunca apaga dados; fica aqui porque preDeployCommand só existe em planos
+    # pagos); 2) se o banco estiver vazio, cria organograma, metas e o login do
+    # administrador (seed --producao; com banco já populado não faz nada).
+    startCommand: npx prisma migrate deploy && npx tsx prisma/seed.ts --producao && npm run start
+    healthCheckPath: /login
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: planometas-db
+          property: connectionString
+      - key: AUTH_SECRET
+        generateValue: true
+      # O proxy do Render informa host/protocolo corretos; com domínio próprio,
+      # troque por AUTH_URL=https://seu-dominio.
+      - key: AUTH_TRUST_HOST
+        value: "true"
+      # No Render o IP real do visitante é o 1º item do X-Forwarded-For.
+      - key: IP_CLIENTE_XFF
+        value: primeiro
+      # Senha do 1º login (prefeito@uba.mg.gov.br). O Render pede o valor ao
+      # criar o Blueprint (12 a 72 caracteres). Só é usada quando o banco está
+      # vazio; depois do 1º acesso pode ser apagada do painel.
+      - key: SENHA_INICIAL_ADMIN
+        sync: false

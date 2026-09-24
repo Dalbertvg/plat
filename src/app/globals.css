@@ -1,0 +1,303 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  --paper: #F6F2EA;
+  --paper-2: #FEFCF7;
+  --paper-3: #EDE7DA;
+  --panel: #FFFFFF;
+  --ink: #201C18;
+  --ink-2: #4A423A;
+  --ink-3: #857B6D;
+  --rule: rgba(32,28,24,0.10);
+  --rule-strong: rgba(32,28,24,0.20);
+  --navy: #0F2A44;
+  --navy-2: #1F3E5C;
+  /* --navy-surface: usada em fundos sólidos com texto claro por cima (barra
+   * superior, botão primário). Normalmente igual a --navy; só diverge em
+   * temas onde --navy vira uma cor clara (papel de texto), como o "marrom". */
+  --navy-surface: var(--navy);
+  --navy-surface-2: var(--navy-2);
+  /* --on-brass: cor de texto para quando o fundo é --brass (avatares/iniciais).
+   * --brass é sempre um dourado médio/claro, então isso normalmente fica escuro. */
+  --on-brass: var(--navy);
+  --brass: #A67735;
+  --brass-2: #C09150;
+  --ok: #2F7D5C;
+  --warn: #B0761E;
+  --late: #B04530;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #14100C;
+    --paper-2: #1E1913;
+    --paper-3: #26201A;
+    --panel: #1A1611;
+    --ink: #F0E6D6;
+    --ink-2: #C0B4A0;
+    --ink-3: #857B6D;
+    --rule: rgba(240,230,214,0.10);
+    --rule-strong: rgba(240,230,214,0.22);
+    --navy: #A8C4E0;
+    --navy-2: #C0D5EA;
+    --brass: #D4A56E;
+    --brass-2: #E4B87F;
+    --ok: #6BC199;
+    --warn: #E4B462;
+    --late: #E28770;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 16.5px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display { font-family: 'Fraunces', 'Times New Roman', serif; }
+.font-mono { font-family: 'IBM Plex Mono', monospace; }
+
+.pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pill-ok { background: rgba(47,125,92,0.14); color: var(--ok); }
+.pill-warn { background: rgba(176,118,30,0.14); color: var(--warn); }
+.pill-late { background: rgba(176,69,48,0.14); color: var(--late); }
+.pill-nav { background: rgba(15,42,68,0.08); color: var(--navy); }
+.pill-brass { background: rgba(166,119,53,0.10); color: var(--brass); }
+.pill-neutral { background: var(--rule); color: var(--ink-2); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-radius: 3px;
+  border: 1px solid var(--rule-strong);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s;
+  text-decoration: none;
+}
+.btn:hover { background: var(--paper-3); border-color: var(--ink-3); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--navy-surface); color: #F6F2EA; border-color: var(--navy-surface); }
+.btn-primary:hover { background: var(--navy-surface-2); border-color: var(--navy-surface-2); }
+.btn-brass { background: var(--brass); color: var(--paper-2); border-color: var(--brass); }
+.btn-brass:hover { background: var(--brass-2); border-color: var(--brass-2); }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--ink-2); }
+.btn-ghost:hover { background: var(--paper-3); color: var(--ink); }
+.btn-danger { color: var(--late); border-color: rgba(176,69,48,0.14); }
+.btn-danger:hover { background: rgba(176,69,48,0.14); }
+.btn-sm { padding: 6px 12px; font-size: 13.5px; }
+
+.tbl { width: 100%; border-collapse: collapse; font-size: 15px; }
+.tbl th, .tbl td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+.tbl th {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 500; background: var(--paper-3);
+}
+.tbl tr:last-child td { border-bottom: none; }
+.tbl tr:hover td { background: var(--paper-3); }
+.tbl code {
+  font-family: 'IBM Plex Mono', monospace; font-size: 13px;
+  color: var(--navy); letter-spacing: 0.02em;
+}
+
+.progress { width: 100%; height: 6px; background: var(--paper-3); border-radius: 3px; overflow: hidden; }
+.progress-bar { height: 100%; background: var(--ok); transition: width 0.3s; }
+.progress-bar.warn { background: var(--warn); }
+.progress-bar.late { background: var(--late); }
+
+.field { margin-bottom: 16px; }
+.field-lbl {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12.5px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 7px;
+}
+.input, .textarea, .select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 16px;
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.input:focus, .textarea:focus, .select:focus {
+  outline: none; border-color: var(--brass); background: var(--panel);
+}
+.textarea { resize: vertical; min-height: 80px; font-family: inherit; }
+
+.panel { background: var(--panel); border: 1px solid var(--rule); padding: 16px 18px; border-radius: 2px; }
+
+.rbac-note {
+  background: rgba(166,119,53,0.10);
+  border-left: 3px solid var(--brass);
+  padding: 12px 16px;
+  margin-bottom: 18px;
+  font-size: 14.5px;
+  color: var(--ink-2);
+  border-radius: 0 3px 3px 0;
+}
+.rbac-note b {
+  color: var(--brass);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px; letter-spacing: 0.09em; text-transform: uppercase; font-weight: 600;
+}
+
+/* ============================================================================
+ * TEMA "MARROM" — paleta escura e quente fixa (independe do modo claro/escuro
+ * do sistema operacional). Ativado por data-theme="marrom" no <html>, em
+ * conjunto com a estrutura "Clássico" (sem data-layout). Especificidade
+ * igual à do bloco de dark mode acima e posicionado depois dele no arquivo,
+ * para sempre vencer o empate — funciona com o SO em claro ou escuro.
+ * ========================================================================== */
+:root[data-theme="marrom"] {
+  --paper: #14100C;
+  --paper-2: #1E1913;
+  --paper-3: #26201A;
+  --panel: #1A1611;
+  --ink: #F0E6D6;
+  --ink-2: #C0B4A0;
+  --ink-3: #857B6D;
+  --rule: rgba(240,230,214,0.10);
+  --rule-strong: rgba(240,230,214,0.22);
+  /* --navy aqui é um papel de TEXTO (números grandes, códigos, links) — por
+   * isso precisa ser claro, para contrastar com o fundo escuro (--paper/--panel).
+   * Quem precisa de um fundo escuro com texto claro em cima (barra superior,
+   * botão primário) usa --navy-surface, que continua escuro. */
+  --navy: #E0B98F;
+  --navy-2: #ECD0B0;
+  --navy-surface: #6B4226;
+  --navy-surface-2: #8B5A34;
+  --on-brass: #2A1B0F;
+  --brass: #D4A56E;
+  --brass-2: #E4B87F;
+  --ok: #6BC199;
+  --warn: #E4B462;
+  --late: #E28770;
+  color-scheme: dark;
+}
+
+/* ============================================================================
+ * TEMAS DE MARCA CUBIC — paletas fixas (independem do modo claro/escuro do
+ * sistema, igual ao "marrom" acima), construídas a partir da paleta oficial
+ * da Cubic Consultoria. Mesma estrutura "Clássico" — só cor muda.
+ * ========================================================================== */
+
+/* TEMA "AZUL CUBIC" — institucional, claro. */
+:root[data-theme="azul"] {
+  --paper: #F4F6F9;
+  --paper-2: #FFFFFF;
+  --paper-3: #E8EDF5;
+  --panel: #FFFFFF;
+  --ink: #0B2340;
+  --ink-2: #3A4557;
+  --ink-3: #8794A8;
+  --rule: rgba(11,35,64,0.10);
+  --rule-strong: rgba(11,35,64,0.20);
+  --navy: #0F4E7A;
+  --navy-2: #16AFA8;
+  --navy-surface: #16265C;
+  --navy-surface-2: #0F4E7A;
+  --on-brass: #0B2340;
+  --brass: #EF7F28;
+  --brass-2: #F79A3C;
+  --ok: #2F8F6E;
+  --warn: #B0761E;
+  --late: #B04530;
+  color-scheme: light;
+}
+
+/* TEMA "TURQUESA" — claro, leva a cor institucional secundária (verde-azulado). */
+:root[data-theme="turquesa"] {
+  --paper: #F4F6F9;
+  --paper-2: #FFFFFF;
+  --paper-3: #E5F4F3;
+  --panel: #FFFFFF;
+  --ink: #0B2340;
+  --ink-2: #3A4557;
+  --ink-3: #8794A8;
+  --rule: rgba(11,140,141,0.14);
+  --rule-strong: rgba(11,140,141,0.26);
+  --navy: #0B8C8D;
+  --navy-2: #16AFA8;
+  --navy-surface: #0B4B4C;
+  --navy-surface-2: #0B8C8D;
+  --on-brass: #0B2340;
+  --brass: #EF7F28;
+  --brass-2: #F79A3C;
+  --ok: #2F8F6E;
+  --warn: #B0761E;
+  --late: #B04530;
+  color-scheme: light;
+}
+
+/* TEMA "PETRÓLEO" — escuro, alternativa fria ao "marrom". */
+:root[data-theme="petroleo"] {
+  --paper: #081422;
+  --paper-2: #0F2036;
+  --paper-3: #16283F;
+  --panel: #0C1B2E;
+  --ink: #E7EEF6;
+  --ink-2: #AFC0D4;
+  --ink-3: #7C8FA6;
+  --rule: rgba(231,238,246,0.10);
+  --rule-strong: rgba(231,238,246,0.22);
+  --navy: #3FC7C0;
+  --navy-2: #6FDAD4;
+  --navy-surface: #16265C;
+  --navy-surface-2: #0F4E7A;
+  --on-brass: #0B2340;
+  --brass: #EF7F28;
+  --brass-2: #F79A3C;
+  --ok: #5FBE93;
+  --warn: #E4B462;
+  --late: #E2707A;
+  color-scheme: dark;
+}
+
+/* ============================================================================
+ * LOGO CUBIC — troca entre a versão colorida (fundos claros) e a
+ * monocromática branca (fundos escuros), conforme o manual da marca.
+ * "Claro" aqui é: Clássico sem o SO em modo escuro, Azul ou Turquesa (fixos,
+ * sempre claros). "Escuro" é: Clássico com o SO em modo escuro, Marrom ou
+ * Petróleo (fixos, sempre escuros).
+ * ========================================================================== */
+.brand-logo-white { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .brand-logo-color { display: none; }
+  :root:not([data-theme]) .brand-logo-white { display: block; }
+}
+:root[data-theme="marrom"] .brand-logo-color,
+:root[data-theme="petroleo"] .brand-logo-color { display: none; }
+:root[data-theme="marrom"] .brand-logo-white,
+:root[data-theme="petroleo"] .brand-logo-white { display: block; }
