@@ -21,14 +21,15 @@ services:
     runtime: node
     plan: free
     region: virginia          # precisa ser a mesma do banco (rede privada)
-    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
-    # A cada start: 1) cria/atualiza as tabelas (migrate deploy — idempotente,
-    # nunca apaga dados; fica aqui porque preDeployCommand só existe em planos
-    # pagos); 2) se o banco estiver vazio, cria organograma, metas e o login do
-    # administrador (seed --producao; com banco já populado não faz nada).
-    startCommand: npx prisma migrate deploy && npx tsx prisma/seed.ts --producao && npm run start
+    buildCommand: npm ci --include=dev && npm run build   # build = prisma generate + next build
+    # `npm run start` = migrate deploy (idempotente, nunca apaga dados) + seed
+    # --producao (só age em banco vazio) + next start. Fica no start porque
+    # preDeployCommand só existe em planos pagos. Ver package.json.
+    startCommand: npm run start
     healthCheckPath: /login
     autoDeployTrigger: commit
+    # AUTH_TRUST_HOST e o IP do visitante (1º item do X-Forwarded-For) são
+    # configurados automaticamente pelo código ao detectar RENDER=true.
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -36,13 +37,6 @@ services:
           property: connectionString
       - key: AUTH_SECRET
         generateValue: true
-      # O proxy do Render informa host/protocolo corretos; com domínio próprio,
-      # troque por AUTH_URL=https://seu-dominio.
-      - key: AUTH_TRUST_HOST
-        value: "true"
-      # No Render o IP real do visitante é o 1º item do X-Forwarded-For.
-      - key: IP_CLIENTE_XFF
-        value: primeiro
       # Senha do 1º login (prefeito@uba.mg.gov.br). O Render pede o valor ao
       # criar o Blueprint (12 a 72 caracteres). Só é usada quando o banco está
       # vazio; depois do 1º acesso pode ser apagada do painel.

@@ -484,7 +484,9 @@ restart). `consumirLimite(chave, {max, janelaMs})` conta **antes** de processar 
 `ipDoCliente()` depende do proxy à frente do app, via `IP_CLIENTE_XFF`: vazio (VPS + Nginx) →
 `X-Real-IP` e, sem ele, o **último** item do `X-Forwarded-For`; `primeiro` (Render) → o
 **primeiro** item, porque o edge do Render grava ali o IP real e anexa os IPs dos proxies depois.
-Configurar errado faz todos os usuários dividirem um único limite de login.
+Se `IP_CLIENTE_XFF` não for definida e `RENDER=true` (variável que o Render sempre define), o
+modo `primeiro` é usado automaticamente. Configurar errado faz todos os usuários dividirem um
+único limite de login.
 
 ---
 
@@ -723,8 +725,8 @@ levantamento).
 
 ```bash
 npm run dev              # next dev — servidor de desenvolvimento (porta 3000)
-npm run build            # next build
-npm run start            # next start — produção
+npm run build            # prisma generate && next build
+npm run start            # PRODUÇÃO: prisma migrate deploy && seed --producao (só age em banco vazio) && next start
 npm run db:setup         # prisma migrate dev && seed (banco novo de desenvolvimento)
 npm run db:deploy        # prisma migrate deploy — aplica migrations em PRODUÇÃO (nunca usar migrate dev lá)
 npm run db:seed          # roda prisma/seed.ts via tsx (só em banco vazio)
@@ -837,14 +839,20 @@ Blueprint com dois recursos na região `virginia` (o Render não tem região no 
 | recurso | configuração |
 |---|---|
 | `planometas-db` (Postgres 16) | `plan: free`; `ipAllowList: []` = **nenhum acesso externo**, só o web service pela rede privada |
-| `plano-de-metas` (web, Node 24 via `engines`) | build `npm ci --include=dev && npx prisma generate && npm run build`; start `npx prisma migrate deploy && npx tsx prisma/seed.ts --producao && npm run start`; health check `/login`; deploy automático a cada commit |
+| `plano-de-metas` (web, Node 24 via `engines`) | build `npm ci --include=dev && npm run build`; start `npm run start`; health check `/login`; deploy automático a cada commit |
 
-Variáveis de ambiente: `DATABASE_URL` (vem do banco), `AUTH_SECRET` (gerada pelo Render),
-`AUTH_TRUST_HOST=true`, `IP_CLIENTE_XFF=primeiro`, `SENHA_INICIAL_ADMIN` (`sync: false`: o Render
-pede o valor **só na criação do Blueprint**). O Render define `NODE_ENV=production` e `PORT=10000`
-só em runtime, por isso o build instala as devDependencies (Prisma CLI, tsx, Tailwind, TS).
+Variáveis de ambiente obrigatórias: `DATABASE_URL` (Internal URL do banco), `AUTH_SECRET` e
+`SENHA_INICIAL_ADMIN` (`sync: false`: o Blueprint pede o valor **só na criação**). Ao detectar
+`RENDER=true` o código liga sozinho o `trustHost` do Auth.js (`auth.config.ts`) e o IP pelo 1º item
+do XFF — sem isso, cada login gera erro `UntrustedHost`. O Render define `NODE_ENV=production` e
+`PORT=10000` só em runtime, por isso o build instala as devDependencies (Prisma CLI, tsx, Tailwind, TS).
 
-- **Migrations rodam no start**, não em `preDeployCommand`, que só existe em planos pagos.
+**Serviço criado manualmente** (New → Web Service, sem Blueprint): funciona com os comandos
+padrão do Render (`npm install; npm run build` / `npm run start`), desde que se crie um Postgres na
+**mesma região** e se cadastrem as 3 variáveis acima no painel (Environment). Foi o caminho usado
+no primeiro deploy real (`plat-hfjl.onrender.com`).
+
+- **Migrations rodam no `npm run start`**, não em `preDeployCommand`, que só existe em planos pagos.
   `migrate deploy` é idempotente e nunca apaga dados.
 - **Inicialização automática**: o `seed --producao` no start cria organograma, metas e o login
   `prefeito@uba.mg.gov.br` com a senha de `SENHA_INICIAL_ADMIN` quando o banco está vazio; nos
@@ -854,6 +862,7 @@ só em runtime, por isso o build instala as devDependencies (Prisma CLI, tsx, Ta
   como privado).
 - **Plano gratuito**: o Postgres é **apagado 30 dias após a criação** (+14 de carência), e o web
   service dorme após 15 min sem acesso (~1 min para acordar). Não serve para dados reais.
-- **Validado localmente** (build limpo com `npm ci` + `next start` em modo produção com as mesmas
-  variáveis): cookies `__Secure-` atrás de HTTPS, rate limit com o IP do primeiro item do XFF,
-  401/307 sem sessão. Ainda **não** foi feito um deploy real no Render.
+- **Validado localmente** (cópia limpa, `npm install` + `npm run build` + `npm run start` em modo
+  produção só com `RENDER=true` e as 3 variáveis): migrations + login do prefeito criados no 1º
+  start, nada alterado no restart, 0 erros `UntrustedHost`, cookies `__Secure-` atrás de HTTPS,
+  rate limit com o IP do 1º item do XFF, 401/307 sem sessão.

@@ -44,13 +44,15 @@ export async function zerarLimite(chave: string): Promise<void> {
 //  - VPS + Nginx (padrão): o Nginx sobrescreve X-Real-IP com o IP da conexão;
 //    sem ele, vale o ÚLTIMO item do X-Forwarded-For (o que o proxy anexou) —
 //    os primeiros são controlados pelo cliente e podem ser forjados.
-//  - Render (IP_CLIENTE_XFF=primeiro): o edge do Render grava o IP real do
-//    cliente como PRIMEIRO item e os últimos são IPs dos próprios proxies.
-//    Ler o último faria todos os usuários dividirem o mesmo limite de login.
+//  - Render (IP_CLIENTE_XFF=primeiro, automático quando RENDER=true): o edge
+//    do Render grava o IP real do cliente como PRIMEIRO item e os últimos são
+//    IPs dos próprios proxies. Ler o último faria todos os usuários dividirem
+//    o mesmo limite de login.
 export function ipDoCliente(headers: Headers): string {
   const partes = (headers.get('x-forwarded-for') ?? '').split(',').map(p => p.trim()).filter(Boolean);
+  const modo = process.env.IP_CLIENTE_XFF ?? (process.env.RENDER === 'true' ? 'primeiro' : '');
 
-  if (process.env.IP_CLIENTE_XFF === 'primeiro') return partes[0] ?? 'desconhecido';
+  if (modo === 'primeiro') return partes[0] ?? 'desconhecido';
 
   const real = headers.get('x-real-ip')?.trim();
   if (real) return real;
