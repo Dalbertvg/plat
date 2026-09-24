@@ -84,6 +84,8 @@ D:\plataforma metas\                          ← pasta raiz (NÃO é repositór
         │   ├── schema.prisma                   ← ★ modelo de dados completo (seção 4)
         │   ├── seed.ts                          ← organograma real + metas/ações demo + senhas iniciais (só em banco vazio)
         │   ├── definir-senha.ts                  ← CLI do admin: redefine a senha de um usuário e derruba as sessões dele
+        │   ├── verificar-ambiente.ts             ← 1º passo do `npm run start`: loga `[config] ...` (quais variáveis existem, sem
+        │   │                                        valores) e aborta o start se faltar DATABASE_URL, AUTH_SECRET (≥32) ou config de host
         │   ├── test-metas.ts                    ← script auxiliar: add/remove metas de teste
         │   ├── migrations\                      ← migrations PostgreSQL (baseline: *_init_postgresql)
         │   ├── migracoes-sqlite-legado\          ← migrations antigas do SQLite, só para referência histórica
@@ -726,7 +728,7 @@ levantamento).
 ```bash
 npm run dev              # next dev — servidor de desenvolvimento (porta 3000)
 npm run build            # prisma generate && next build
-npm run start            # PRODUÇÃO: prisma migrate deploy && seed --producao (só age em banco vazio) && next start
+npm run start            # PRODUÇÃO: verificar-ambiente && prisma migrate deploy && seed --producao (só age em banco vazio) && next start
 npm run db:setup         # prisma migrate dev && seed (banco novo de desenvolvimento)
 npm run db:deploy        # prisma migrate deploy — aplica migrations em PRODUÇÃO (nunca usar migrate dev lá)
 npm run db:seed          # roda prisma/seed.ts via tsx (só em banco vazio)
@@ -852,6 +854,9 @@ padrão do Render (`npm install; npm run build` / `npm run start`), desde que se
 **mesma região** e se cadastrem as 3 variáveis acima no painel (Environment). Foi o caminho usado
 no primeiro deploy real (`plat-hfjl.onrender.com`).
 
+- **Diagnóstico**: a mensagem JSON `There was a problem with the server configuration` vem do
+  `assertConfig` do Auth.js e significa host não confiável (`UntrustedHost`) ou `AUTH_SECRET` ausente
+  (`MissingSecret`), nesta ordem. O `verificar-ambiente.ts` agora pega isso no start e diz qual falta.
 - **Migrations rodam no `npm run start`**, não em `preDeployCommand`, que só existe em planos pagos.
   `migrate deploy` é idempotente e nunca apaga dados.
 - **Inicialização automática**: o `seed --producao` no start cria organograma, metas e o login
