@@ -71,7 +71,7 @@ export default async function NovaPropostaPage({
 
       <div className="panel" style={{ maxWidth: 640 }}>
         <div className="mb-4">
-          <h1 className="font-display text-[24px] leading-tight m-0 mb-1">
+          <h1 className="font-display text-[22px] sm:text-[24px] leading-tight m-0 mb-1">
             {metaContexto ? 'Propor edição desta meta' : 'Nova proposta'}
           </h1>
           <p className="text-[12.5px] m-0" style={{ color: 'var(--ink-2)' }}>

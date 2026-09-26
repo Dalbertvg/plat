@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { cobrarAcao, type CobrarResultado, responderCobranca, type ResponderResultado, comentarAcao, type ComentarResultado } from '@/actions/cobrancas';
+import { listarAcoesAtrasadas } from '@/actions/painel';
 
 export type RespostaCobranca = {
   atorNome: string;
@@ -63,21 +64,40 @@ type RowState = {
 
 type TabKey = 'atraso' | 'cobrancas';
 
-export function AcoesAtrasadas({ rows }: { rows: AcaoAtrasadaRow[] }) {
+// O painel manda só o total e as cobranças que o usuário recebeu. A lista
+// completa (a parte mais pesada da tela) é buscada na primeira abertura.
+export function AcoesAtrasadas({ total, rowsComCobranca }: { total: number; rowsComCobranca: AcaoAtrasadaRow[] }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<TabKey>('atraso');
-  const total = rows.length;
+  const [rows, setRows] = useState<AcaoAtrasadaRow[] | null>(null);
+  const [erroLista, setErroLista] = useState<string | null>(null);
+  const [carregandoLista, startCarregarLista] = useTransition();
 
   if (total === 0) return null;
 
-  const rowsComCobranca = rows.filter(r => r.recebiCobranca && r.cobrancasContraMim.length > 0);
   const totalCobrancas = rowsComCobranca.length;
 
-  const abrirAba = (aba: TabKey) => { setOpen(true); setTab(aba); };
+  const carregarLista = () => {
+    setErroLista(null);
+    startCarregarLista(async () => {
+      try {
+        setRows(await listarAcoesAtrasadas());
+      } catch {
+        setErroLista('Não foi possível carregar a lista agora.');
+      }
+    });
+  };
 
+  const abrirAba = (aba: TabKey) => {
+    setOpen(true);
+    setTab(aba);
+    if (aba === 'atraso' && rows === null && !carregandoLista) carregarLista();
+  };
+
+  const listaPendente = tab === 'atraso' && rows === null;
   const rowsVisiveis = tab === 'cobrancas'
     ? rowsComCobranca
-    : rows;
+    : rows ?? [];
 
   return (
     <div className="mb-6 flex flex-col gap-3">
@@ -88,7 +108,7 @@ export function AcoesAtrasadas({ rows }: { rows: AcaoAtrasadaRow[] }) {
       {!open && (
         <button
           onClick={() => abrirAba('atraso')}
-          className="w-full flex items-center justify-between gap-3 text-left transition-all"
+          className="w-full flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 text-left transition-all"
           style={{
             padding: '14px 18px',
             background: 'linear-gradient(90deg, rgba(176,69,48,0.10), rgba(176,69,48,0.02))',
@@ -119,7 +139,7 @@ export function AcoesAtrasadas({ rows }: { rows: AcaoAtrasadaRow[] }) {
               </div>
             </div>
           </div>
-          <span className="btn btn-brass btn-sm" style={{ flex: 'none' }}>
+          <span className="btn btn-brass btn-sm ml-auto" style={{ flex: 'none' }}>
             Ver e cobrar →
           </span>
         </button>
@@ -130,16 +150,16 @@ export function AcoesAtrasadas({ rows }: { rows: AcaoAtrasadaRow[] }) {
           className="panel"
           style={{
             borderTop: '4px solid var(--late)',
-            padding: '18px 20px 20px'
+            padding: 'clamp(12px, 3vw, 18px) clamp(12px, 3vw, 20px) clamp(14px, 3vw, 20px)'
           }}
         >
-          <div className="flex justify-between items-baseline pb-3 mb-4 border-b" style={{ borderColor: 'var(--rule)' }}>
-            <div>
-              <div className="flex items-center gap-4">
-                <TabBtn active={tab === 'atraso'} onClick={() => setTab('atraso')} count={total}>
+          <div className="flex flex-wrap justify-between items-baseline gap-2 pb-3 mb-4 border-b" style={{ borderColor: 'var(--rule)' }}>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <TabBtn active={tab === 'atraso'} onClick={() => abrirAba('atraso')} count={total}>
                   Ações em atraso
                 </TabBtn>
-                <TabBtn active={tab === 'cobrancas'} onClick={() => setTab('cobrancas')} count={totalCobrancas}>
+                <TabBtn active={tab === 'cobrancas'} onClick={() => abrirAba('cobrancas')} count={totalCobrancas}>
                   Cobranças recebidas
                 </TabBtn>
               </div>
@@ -152,7 +172,28 @@ export function AcoesAtrasadas({ rows }: { rows: AcaoAtrasadaRow[] }) {
             <button className="btn btn-ghost btn-sm" onClick={() => setOpen(false)}>Recolher ↑</button>
           </div>
 
-          {rowsVisiveis.length === 0 ? (
+          {listaPendente && erroLista ? (
+            <div className="text-center py-6 text-[15px]" style={{ color: 'var(--ink-3)' }}>
+              {erroLista}{' '}
+              <button className="btn btn-sm ml-2" onClick={carregarLista} disabled={carregandoLista}>
+                Tentar de novo
+              </button>
+            </div>
+          ) : listaPendente ? (
+            <div className="grid gap-2" role="status" aria-live="polite">
+              <span className="sr-only">Carregando ações em atraso…</span>
+              {Array.from({ length: Math.min(total, 4) }, (_, i) => (
+                <div key={i} className="linha-atraso" aria-hidden>
+                  <div className="esqueleto mx-auto" style={{ width: 52, height: 30 }} />
+                  <div className="grid gap-2">
+                    <div className="esqueleto" style={{ width: '55%', height: 16 }} />
+                    <div className="esqueleto" style={{ width: '80%', height: 12 }} />
+                  </div>
+                  <div className="esqueleto linha-atraso-acoes" style={{ width: 96, height: 30 }} />
+                </div>
+              ))}
+            </div>
+          ) : rowsVisiveis.length === 0 ? (
             <div className="text-center py-6 text-[15px]" style={{ color: 'var(--ink-3)' }}>
               {tab === 'cobrancas' ? 'Nenhuma cobrança pendente no momento.' : 'Nenhuma ação em atraso.'}
             </div>
@@ -255,16 +296,7 @@ function LinhaAtraso({ row }: { row: AcaoAtrasadaRow }) {
       : { txt: `${row.diasEmAtraso}d`, tone: 'late' as const };
 
   return (
-    <div
-      className="grid gap-4 items-center"
-      style={{
-        gridTemplateColumns: '72px 1fr auto',
-        padding: '14px 16px',
-        background: 'var(--paper-2)',
-        border: '1px solid var(--rule)',
-        borderRadius: 3
-      }}
-    >
+    <div className="linha-atraso">
       <div className="text-center">
         <div
           className="font-mono text-[15px] font-semibold tabular-nums inline-block"
@@ -290,6 +322,7 @@ function LinhaAtraso({ row }: { row: AcaoAtrasadaRow }) {
         <div className="flex items-baseline gap-2 flex-wrap">
           <Link
             href={`/metas/${row.metaCPId}`}
+            prefetch={false}
             className="font-medium text-[16px] hover:underline"
             style={{ color: 'var(--ink)' }}
             title={`Abrir meta: ${row.metaCPNome}`}
@@ -425,7 +458,7 @@ function LinhaAtraso({ row }: { row: AcaoAtrasadaRow }) {
         )}
 
         {showComentar && row.podeComentar && (
-          <div className="mt-2 flex gap-2 items-start">
+          <div className="mt-2 flex flex-wrap sm:flex-nowrap gap-2 items-start">
             <input
               value={comentarioTxt}
               onChange={e => setComentarioTxt(e.target.value)}
@@ -466,7 +499,7 @@ function LinhaAtraso({ row }: { row: AcaoAtrasadaRow }) {
         )}
 
         {showTxt && row.podeCobrar && (
-          <div className="mt-2 flex gap-2 items-start">
+          <div className="mt-2 flex flex-wrap sm:flex-nowrap gap-2 items-start">
             <input
               value={msg}
               onChange={e => setMsg(e.target.value)}
@@ -499,9 +532,9 @@ function LinhaAtraso({ row }: { row: AcaoAtrasadaRow }) {
         )}
       </div>
 
-      <div className="flex flex-col items-end gap-1">
+      <div className="linha-atraso-acoes flex flex-col gap-1">
         {(row.podeCobrar || row.podeComentar) ? (
-          <div className="flex gap-1.5 flex-wrap justify-end">
+          <div className="flex gap-1.5 flex-wrap justify-start sm:justify-end">
             {row.podeCobrar && !showTxt && (
               <button
                 className="btn btn-sm"
@@ -567,7 +600,7 @@ function BannerCobrancasRecebidas({ rows, onAbrir }: { rows: AcaoAtrasadaRow[]; 
 
   return (
     <div
-      className="w-full flex items-start gap-3"
+      className="w-full flex flex-wrap sm:flex-nowrap items-start gap-3"
       style={{
         padding: '12px 16px',
         background: 'linear-gradient(90deg, rgba(176,69,48,0.16), rgba(176,69,48,0.04))',
@@ -601,7 +634,7 @@ function BannerCobrancasRecebidas({ rows, onAbrir }: { rows: AcaoAtrasadaRow[]; 
           <span style={{ color: 'var(--ink-2)' }}>&ldquo;{maisRecente.acao}&rdquo;</span>
         </div>
       </div>
-      <button onClick={onAbrir} className="btn btn-brass btn-sm" style={{ flex: 'none' }}>
+      <button onClick={onAbrir} className="btn btn-brass btn-sm ml-auto" style={{ flex: 'none' }}>
         Ver detalhes →
       </button>
     </div>
@@ -668,7 +701,7 @@ function CobrancaRecebidaItem({ cobranca: c }: { cobranca: CobrancaInfo }) {
             </button>
           )}
           {showForm && (
-            <div className="mt-1.5 flex gap-2 items-start">
+            <div className="mt-1.5 flex flex-wrap sm:flex-nowrap gap-2 items-start">
               <input
                 value={respTxt}
                 onChange={e => setRespTxt(e.target.value)}

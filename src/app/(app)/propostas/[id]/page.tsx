@@ -5,8 +5,22 @@ import { podeComentarProposta } from '@/lib/rbac';
 import { responderProposta } from '@/actions/propostas';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import type { Prisma } from '@prisma/client';
+import { BotaoEnviar } from '@/components/BotaoEnviar';
 
 export const dynamic = 'force-dynamic';
+
+// payloadJson de "ajuste_acao" traz { acaoId, ... } — ver schema.prisma.
+function acaoIdDoPayload(payloadJson: string | null): string | null {
+  if (!payloadJson) return null;
+  try {
+    const p: unknown = JSON.parse(payloadJson);
+    const acaoId = p && typeof p === 'object' ? (p as { acaoId?: unknown }).acaoId : undefined;
+    return typeof acaoId === 'string' ? acaoId : null;
+  } catch {
+    return null;
+  }
+}
 
 type TimelineStep = {
   tag: string;
@@ -39,32 +53,50 @@ export default async function PropostaTimelinePage({
   const proposta = await prisma.proposta.findUnique({
     where: { id },
     include: {
-      autor: true,
-      secretariaDona: true,
-      divisaoOrigem: true,
-      comentarios: { include: { autor: true }, orderBy: { quando: 'asc' } }
+      autor: { select: { nome: true, perfil: true } },
+      secretariaDona: { select: { nome: true } },
+      divisaoOrigem: { select: { nome: true } },
+      comentarios: { include: { autor: { select: { nome: true, perfil: true } } }, orderBy: { quando: 'asc' } }
     }
   });
 
   if (!proposta) return notFound();
 
+  // Mesmo escopo da lista de propostas (autor, chefe da divisão de origem,
+  // secretário da secretaria dona e prefeito). Fora dele, a proposta "não
+  // existe" — abrir pelo endereço direto não pode revelar o conteúdo.
   const podeComentar = podeComentarProposta(user, proposta);
+  if (!podeComentar) return notFound();
 
-  // Comentários já aparecem por completo na Conversa abaixo — não duplica na timeline.
-  const auditoria = await prisma.auditoria.findMany({
-    where: { entidade: 'proposta', entidadeId: id, tag: { not: 'PROPOSTA:COMENTARIO' } },
-    orderBy: { quando: 'asc' }
-  });
+  const selectEvento = { tag: true, atorNome: true, perfil: true, quando: true, msg: true } as const;
 
-  const aplicacaoAuditoria = proposta.metaCPRefId
-    ? await prisma.auditoria.findMany({
-        where: {
-          tag: { in: ['ACAO:APLICADA_VIA_PROPOSTA', 'META:APLICADA_VIA_PROPOSTA', 'META:CRIADA_VIA_PROPOSTA'] },
-          msg: { contains: proposta.titulo }
-        },
-        orderBy: { quando: 'asc' }
-      })
-    : [];
+  // Eventos gravados quando a aprovação aplicou a mudança na meta/ação. Busca
+  // pelo índice (tag, quando) a partir da criação da proposta, e no alvo dela
+  // quando conhecido — antes varria a auditoria inteira pelo texto do título
+  // e podia trazer eventos de outra proposta com título parecido.
+  const alvos: Prisma.AuditoriaWhereInput[] = [];
+  if (proposta.metaCPRefId) alvos.push({ entidade: 'meta', entidadeId: proposta.metaCPRefId });
+  const acaoAlvo = acaoIdDoPayload(proposta.payloadJson);
+  if (acaoAlvo) alvos.push({ entidade: 'acao', entidadeId: acaoAlvo });
+
+  const [auditoria, aplicacaoAuditoria] = await Promise.all([
+    // Comentários já aparecem por completo na Conversa abaixo — não duplica na timeline.
+    prisma.auditoria.findMany({
+      where: { entidade: 'proposta', entidadeId: id, tag: { not: 'PROPOSTA:COMENTARIO' } },
+      orderBy: { quando: 'asc' },
+      select: selectEvento
+    }),
+    prisma.auditoria.findMany({
+      where: {
+        tag: { in: ['ACAO:APLICADA_VIA_PROPOSTA', 'META:APLICADA_VIA_PROPOSTA', 'META:CRIADA_VIA_PROPOSTA'] },
+        quando: { gte: proposta.criadoEm },
+        msg: { contains: `proposta "${proposta.titulo}"` },
+        ...(proposta.tipo !== 'nova' && alvos.length ? { OR: alvos } : {})
+      },
+      orderBy: { quando: 'asc' },
+      select: selectEvento
+    })
+  ]);
 
   const steps: TimelineStep[] = [
     ...auditoria.map(a => ({ tag: a.tag, atorNome: a.atorNome, perfil: a.perfil, quando: a.quando, msg: a.msg })),
@@ -85,14 +117,14 @@ export default async function PropostaTimelinePage({
 
       <div className="panel mb-4" style={{ maxWidth: 720 }}>
         <div className="flex justify-between items-start gap-3 mb-4">
-          <div>
+          <div className="min-w-0">
             <div className="font-mono text-[10px] tracking-widest uppercase mb-1" style={{ color: 'var(--ink-3)' }}>{proposta.id}</div>
-            <h1 className="font-display text-[24px] leading-tight m-0">{proposta.titulo}</h1>
+            <h1 className="font-display text-[20px] sm:text-[24px] leading-tight m-0">{proposta.titulo}</h1>
           </div>
           <span className={`pill ${statusPill}`}>{proposta.status}</span>
         </div>
 
-        <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-[13px] mb-4 pb-4 border-b" style={{ borderColor: 'var(--rule)' }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-[13px] mb-4 pb-4 border-b" style={{ borderColor: 'var(--rule)' }}>
           <div><span style={{ color: 'var(--ink-3)' }}>Tipo:</span> {tipoLabel}</div>
           <div><span style={{ color: 'var(--ink-3)' }}>Autor:</span> {proposta.autor.nome} ({proposta.autor.perfil})</div>
           <div><span style={{ color: 'var(--ink-3)' }}>Secretaria:</span> {proposta.secretariaDona.nome}</div>
@@ -185,7 +217,7 @@ export default async function PropostaTimelinePage({
                     >
                       {initials(c.autor.nome)}
                     </span>
-                    <div style={{ maxWidth: '75%' }}>
+                    <div className="min-w-0" style={{ maxWidth: '85%' }}>
                       <div
                         className="text-[13.5px] px-3 py-2"
                         style={{
@@ -211,7 +243,7 @@ export default async function PropostaTimelinePage({
           )}
 
           {podeComentar && (
-            <form action={responderProposta} className="flex gap-2 items-start pt-3 border-t" style={{ borderColor: 'var(--rule)' }}>
+            <form action={responderProposta} className="flex flex-col sm:flex-row gap-2 sm:items-start pt-3 border-t" style={{ borderColor: 'var(--rule)' }}>
               <input type="hidden" name="propostaId" value={proposta.id} />
               <textarea
                 name="texto"
@@ -222,7 +254,7 @@ export default async function PropostaTimelinePage({
                 className="textarea flex-1"
                 style={{ minHeight: 44 }}
               />
-              <button type="submit" className="btn btn-primary btn-sm">Enviar</button>
+              <BotaoEnviar>Enviar</BotaoEnviar>
             </form>
           )}
         </div>

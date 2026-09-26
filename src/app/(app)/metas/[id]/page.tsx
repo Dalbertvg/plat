@@ -4,6 +4,7 @@ import { can, filterVisibleMetas } from '@/lib/rbac';
 import { updateAcao } from '@/actions/acoes';
 import { fmtDate, fmtDateTime, fmtPct, pctFromAcoes, fmtAlvo, labelDeTempo, computeStatusAcao, calcPrazoMetaFinal, fmtMesAno } from '@/lib/format';
 import Link from 'next/link';
+import { BotaoEnviar } from '@/components/BotaoEnviar';
 import { notFound } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,7 @@ export default async function MetaDetailPage({ params }: { params: Promise<{ id:
       metaLP: true,
       secretariaDona: true,
       divisaoExecutora: true,
-      acoes: { include: { responsavel: true } },
+      acoes: { include: { responsavel: { select: { nome: true } } } },
       participantes: { include: { secretaria: true } }
     }
   });
@@ -55,10 +56,10 @@ export default async function MetaDetailPage({ params }: { params: Promise<{ id:
       )}
 
       <div className="panel mb-4">
-        <div className="flex justify-between items-start gap-5 mb-3">
-          <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <h1 className="font-display text-[22px] leading-tight m-0" style={{ letterSpacing: '-0.01em', maxWidth: '60ch' }}>{m.nome}</h1>
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 sm:gap-5 mb-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+              <h1 className="font-display text-[20px] sm:text-[22px] leading-tight m-0" style={{ letterSpacing: '-0.01em', maxWidth: '60ch' }}>{m.nome}</h1>
               <span className={`pill ${m.tipo === 'principal' ? 'pill-nav' : 'pill-neutral'}`}>
                 {m.tipo === 'principal' ? 'Plano de governo' : 'Secundária'}
               </span>
@@ -68,13 +69,13 @@ export default async function MetaDetailPage({ params }: { params: Promise<{ id:
               <code>{m.id}</code> · Capítulo {m.metaLP.capitulo} · {m.metaLP.titulo}
             </div>
           </div>
-          <div className="flex gap-2">
-            {!canEdit && canPropose && <Link href={`/propostas/nova?metaId=${m.id}`} className="btn btn-sm">Propor edição</Link>}
+          <div className="flex flex-wrap gap-2 flex-none">
+            {!canEdit && canPropose && <Link href={`/propostas/nova?metaId=${m.id}`} prefetch={false} className="btn btn-sm">Propor edição</Link>}
             {canEdit && <Link href={`/metas/${m.id}/editar`} className="btn btn-primary btn-sm">✎ Editar meta</Link>}
           </div>
         </div>
 
-        <div className="grid grid-cols-5 gap-5 pt-3.5 border-t" style={{ borderColor: 'var(--rule)' }}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-5 pt-3.5 border-t" style={{ borderColor: 'var(--rule)' }}>
           <Fact label="Progresso" value={fmtPct(pct)} />
           <Fact label="Ações" value={String(m.acoes.length)} />
           <Fact label="Prazo da meta" value={prazoMeta ? fmtMesAno(prazoMeta) : '—'} sub />
@@ -93,20 +94,21 @@ export default async function MetaDetailPage({ params }: { params: Promise<{ id:
       </div>
 
       <div className="panel">
-        <div className="flex justify-between items-baseline pb-2 mb-3 border-b" style={{ borderColor: 'var(--rule)' }}>
+        <div className="flex flex-wrap justify-between items-baseline gap-2 pb-2 mb-3 border-b" style={{ borderColor: 'var(--rule)' }}>
           <div className="font-display text-[15px] font-semibold">Ações</div>
           {canEdit && <Link href={`/metas/${m.id}/editar`} className="btn btn-sm">Gerenciar ações</Link>}
         </div>
+        <div className="tabela-rolavel">
         <table className="tbl">
           <thead>
             <tr>
               <th>Ação</th>
-              <th>Início</th>
-              <th>Tempo</th>
-              <th style={{ textAlign: 'right' }}>Alvo</th>
+              <th className="hidden md:table-cell">Início</th>
+              <th className="hidden lg:table-cell">Tempo</th>
+              <th className="hidden sm:table-cell" style={{ textAlign: 'right' }}>Alvo</th>
               <th style={{ textAlign: 'right' }}>Sit.</th>
               <th>Status</th>
-              <th>Responsável</th>
+              <th className="hidden md:table-cell">Responsável</th>
             </tr>
           </thead>
           <tbody>
@@ -142,6 +144,7 @@ export default async function MetaDetailPage({ params }: { params: Promise<{ id:
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </>
   );
@@ -179,13 +182,19 @@ function ActionRow({ a, statusLabel, statusPill, canDoAnything }: {
               Última justificativa: {a.ultJustificativa}
             </div>
           )}
+          {/* Telas estreitas: os dados das colunas ocultas vêm aqui. */}
+          <div className="md:hidden text-[12px] font-normal mt-1" style={{ color: 'var(--ink-3)' }}>
+            Início {fmtDate(a.inicio)} · {labelDeTempo(a.tempoNecessario)}
+            <span className="sm:hidden"> · alvo {fmtAlvo(a.alvo, a.unidade)}</span>
+            {' · '}{a.responsavel?.nome ?? 'sem responsável'}
+          </div>
         </td>
-        <td>{fmtDate(a.inicio)}</td>
-        <td className="text-[12px]">{labelDeTempo(a.tempoNecessario)}</td>
-        <td style={{ textAlign: 'right' }}><code>{fmtAlvo(a.alvo, a.unidade)}</code></td>
+        <td className="hidden md:table-cell">{fmtDate(a.inicio)}</td>
+        <td className="hidden lg:table-cell text-[12px]">{labelDeTempo(a.tempoNecessario)}</td>
+        <td className="hidden sm:table-cell" style={{ textAlign: 'right' }}><code>{fmtAlvo(a.alvo, a.unidade)}</code></td>
         <td style={{ textAlign: 'right' }}><code>{fmtPct(a.situacaoAtual)}</code></td>
         <td><span className={`pill ${statusPill}`}>{statusLabel}</span></td>
-        <td className="text-[12px]">{a.responsavel?.nome ?? '—'}</td>
+        <td className="hidden md:table-cell text-[12px]">{a.responsavel?.nome ?? '—'}</td>
       </tr>
       {canDoAnything && (
         <tr>
@@ -194,7 +203,7 @@ function ActionRow({ a, statusLabel, statusPill, canDoAnything }: {
               <summary className="cursor-pointer px-3 py-1.5 list-none text-[11.5px]" style={{ color: 'var(--brass)', background: 'var(--paper-3)' }}>
                 Atualizar progresso ▾
               </summary>
-              <form action={updateAcao} className="p-3 grid grid-cols-[100px_1fr_auto] gap-3 items-end" style={{ background: 'var(--panel)' }}>
+              <form action={updateAcao} className="p-3 grid grid-cols-1 sm:grid-cols-[110px_1fr_auto] gap-3 items-end" style={{ background: 'var(--panel)' }}>
                 <input type="hidden" name="acaoId" value={a.id} />
                 <div className="field m-0">
                   <label className="field-lbl">Situação (%)</label>
@@ -204,7 +213,7 @@ function ActionRow({ a, statusLabel, statusPill, canDoAnything }: {
                   <label className="field-lbl">Justificativa <span style={{ color: 'var(--danger, #c33)' }}>*</span></label>
                   <input name="justificativa" className="input" required minLength={3} placeholder="Por que o valor mudou? (obrigatório)" />
                 </div>
-                <button type="submit" className="btn btn-primary btn-sm">Salvar</button>
+                <BotaoEnviar enviando="Salvando…">Salvar</BotaoEnviar>
               </form>
             </details>
           </td>

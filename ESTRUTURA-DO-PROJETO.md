@@ -62,10 +62,13 @@ D:\plataforma metas\                          ← pasta raiz (NÃO é repositór
     ├── 02-logo-png\                           ← identidade visual (Cubic Consultoria), várias cores/tamanhos
     ├── *.xlsx                                 ← planilhas de origem (metas, propostas, administração)
     ├── Iniciar Plano de Metas.bat              ← ★ duplo clique = sobe tudo: Docker → Postgres → .env/npm install
-    │                                              (se faltarem) → migrate deploy → seed se o banco estiver vazio
+    │                                              (se faltarem) → trava de migrações (verificar-migracoes.ts) →
+    │                                              migrate deploy → seed se o banco estiver vazio
     │                                              (pausa p/ anotar senhas) → next dev em 127.0.0.1:3000 → abre o
     │                                              navegador. Se já estiver no ar, só abre o navegador.
-    │                                              Salvo em CP850 + CRLF (exigência do cmd.exe; não salvar como UTF-8)
+    │                                              Salvo em CP850 + CRLF em TODAS as linhas (exigência do cmd.exe; não
+    │                                              salvar como UTF-8 nem com quebras LF). Depois de editar, conferir os
+    │                                              rótulos de goto (divisa de 512 bytes — ver Enviar para o GitHub.bat)
     ├── Enviar para o GitHub.bat                ← duplo clique = commit + push de app/ para github.com/Dalbertvg/plat.
     │                                              Sem senha no arquivo (login pelo Git Credential Manager no navegador);
     │                                              avisa se o repositório estiver público; bloqueia se o .env não estiver
@@ -82,12 +85,17 @@ D:\plataforma metas\                          ← pasta raiz (NÃO é repositór
         ├── next.config.mjs, tsconfig.json, tailwind.config.ts, postcss.config.mjs
         ├── prisma\
         │   ├── schema.prisma                   ← ★ modelo de dados completo (seção 4)
-        │   ├── seed.ts                          ← organograma real + metas/ações demo + senhas iniciais (só em banco vazio)
+        │   ├── seed.ts                          ← organograma real + metas/ações demo + senhas iniciais. Só age em banco
+        │   │                                        TOTALMENTE vazio (qualquer linha em qualquer tabela = não faz nada) e
+        │   │                                        nunca apaga nem altera dados (seção 18)
         │   ├── definir-senha.ts                  ← CLI do admin: redefine a senha de um usuário e derruba as sessões dele
         │   ├── verificar-ambiente.ts             ← 1º passo do `npm run start`: loga `[config] ...` (quais variáveis existem, sem
         │   │                                        valores) e aborta o start se faltar DATABASE_URL, AUTH_SECRET (≥32) ou config de host
-        │   ├── test-metas.ts                    ← script auxiliar: add/remove metas de teste
-        │   ├── migrations\                      ← migrations PostgreSQL (baseline: *_init_postgresql)
+        │   ├── verificar-migracoes.ts            ← ★ TRAVA DOS DADOS: antes de `migrate deploy`, cancela o start se alguma
+        │   │                                        migração pendente apagar/alterar dados (DROP, DELETE, UPDATE…) — seção 18
+        │   ├── somente-local.ts                  ← recusa db:reset / db:setup / test-metas:* fora do banco desta máquina
+        │   ├── test-metas.ts                    ← script auxiliar: add/remove metas de teste (só banco local)
+        │   ├── migrations\                      ← migrations PostgreSQL (baseline: *_init_postgresql; *_indices_desempenho)
         │   ├── migracoes-sqlite-legado\          ← migrations antigas do SQLite, só para referência histórica
         │   └── dev.db                           ← banco SQLite antigo — NÃO é mais usado; dados ainda não migrados
         └── src\
@@ -101,18 +109,23 @@ D:\plataforma metas\                          ← pasta raiz (NÃO é repositór
             │   ├── acoes.ts                       ← updateAcao — atualizar progresso de uma ação
             │   ├── propostas.ts                   ← fluxo de propostas: submeter/aprovar/rejeitar/aplicar
             │   ├── cobrancas.ts                    ← cobrar ação atrasada, responder cobrança, comentar
-            │   └── usuarios.ts                     ← criarUsuario (cadastro + lotação + senha inicial gerada)
+            │   ├── usuarios.ts                     ← criarUsuario (cadastro + lotação + senha inicial gerada)
+            │   ├── painel.ts                       ← listarAcoesAtrasadas: lista completa de atrasos, sob demanda
+            │   └── preferencias.ts                 ← salvarTema: grava o tema de cores do próprio usuário
             ├── app\                              ← ★ rotas (Next.js App Router)
-            │   ├── layout.tsx                     ← RootLayout: <html>, fontes, script anti-flash de tema
+            │   ├── layout.tsx                     ← RootLayout: <html>, fontes (next/font → var(--font-display|sans|mono)),
+            │   │                                     data-theme do usuário logado (ou o padrão) já no HTML (seção 21)
             │   ├── page.tsx                       ← "/" → redirect para /painel
             │   ├── globals.css                    ← ★ design tokens (CSS vars), classes utilitárias (.btn, .pill, .tbl…)
             │   ├── login\page.tsx + LoginForm.tsx  ← única tela pública (sem cadastro nem recuperação de senha)
             │   ├── api\auth\[...nextauth]\route.ts ← handlers do Auth.js (csrf, callback, session, signout)
             │   └── (app)\                          ← route group PRIVADO, todas as telas internas
             │       ├── layout.tsx                  ← envolve tudo em <AppShell>
+            │       ├── loading.tsx                 ← esqueleto reserva; cada tela tem o seu loading.tsx (seção 19)
             │       ├── painel\                      ← dashboard (home pós-login)
-            │       │   ├── page.tsx
-            │       │   ├── AcoesAtrasadas.tsx        ← client component: lista + cobrança + comentários
+            │       │   ├── page.tsx                  ← dados via lib/painel.ts
+            │       │   ├── AcoesAtrasadas.tsx        ← client: recebe total + cobranças recebidas; a lista completa
+            │       │   │                                vem de actions/painel.ts ao abrir o quadro
             │       │   ├── ProximosPrazos.tsx
             │       │   └── RankingSecretarias.tsx
             │       ├── metas\
@@ -134,11 +147,17 @@ D:\plataforma metas\                          ← pasta raiz (NÃO é repositór
             │       ├── auditoria\page.tsx             ← feed de auditoria com RBAC de leitura
             │       └── organograma\page.tsx           ← árvore secretaria → divisão → pessoas
             ├── components\                        ← componentes compartilhados entre rotas
-            │   ├── AppShell.tsx                     ← ★ layout raiz autenticado: topbar (usuário + Sair) + sidebar + main
+            │   ├── AppShell.tsx                     ← ★ layout raiz autenticado: topbar (usuário + Sair) + sidebar + main;
+            │   │                                       responsivo (seção 20): sidebar fixa só a partir de 1024 px
+            │   ├── MenuMovel.tsx                      ← client: botão ☰ + gaveta com o menu em telas < 1024 px
             │   ├── SidebarNav.tsx                     ← menu lateral (client, usa usePathname)
-            │   └── LayoutPicker.tsx                   ← seletor de tema visual (5 paletas, salvas em localStorage)
+            │   ├── SeletorTema.tsx                    ← área "Aparência" do menu: tema de cores salvo no usuário (seção 21)
+            │   ├── Esqueleto.tsx                      ← peças dos esqueletos de carregamento (loading.tsx)
+            │   └── BotaoEnviar.tsx                    ← botão de submit que vira "Salvando…" (useFormStatus)
             └── lib\                                ← ★ lógica pura / infraestrutura, sem JSX
-                ├── db.ts                             ← singleton do PrismaClient
+                ├── db.ts                             ← singleton do PrismaClient (pool: 5 conexões, DB_CONEXOES)
+                ├── painel.ts                         ← ★ dados do painel: base filtrada no banco, situação passada em
+                │                                        cache de 10 min, classificação e detalhe das ações em atraso
                 ├── session.ts                         ← ★ getCurrentUser() / requireUser() — sessão Auth.js validada no banco
                 ├── senha.ts                           ← hash/verificação bcrypt, geração de senha inicial
                 ├── rate-limit.ts                      ← rate limit de janela fixa persistido no Postgres + IP do cliente
@@ -189,6 +208,7 @@ Relações: `divisoes[]`, `lotacoes[]`, `metasLP[]`, `metasCPDona[]` (dona), `me
 | `ultimoAcesso` | DateTime? | atualizado a cada login bem-sucedido (`authorize` em `src/auth.ts`) |
 | `senhaHash` | String | hash bcrypt (custo 12). Obrigatório: não existe conta sem senha |
 | `sessaoVersao` | Int (default 0) | viaja no JWT; incrementar invalida todas as sessões do usuário (usado por `definir-senha.ts`) |
+| `tema` | String? | tema de cores escolhido em "Aparência" (`azul`, `turquesa`, `classico`, `petroleo`, `marrom`); `null` = padrão (`azul`). Ver seção 21 |
 
 **`Lotacao`** — vínculo N:N entre `Usuario` e (`Secretaria`, `Divisao`?). Um usuário pode ter
 **múltiplas lotações** (ex.: chefe emprestado a duas divisões). Chave única
@@ -602,11 +622,10 @@ Todas as páginas são **Server Components async** com `export const dynamic = '
   conteúdo da rota. Chama `requireUser()`: sem sessão válida, redireciona para `/login`.
 - **`SidebarNav.tsx`** (Client) — menu lateral; usa `usePathname()` para destacar item ativo;
   item "Usuários" fica desabilitado (`disabled`) se `!canUsers`; badge numérico em "Propostas".
-- **`LayoutPicker.tsx`** (Client) — seletor de **5 temas visuais** (`classico`, `azul`,
-  `turquesa`, `petroleo`, `marrom`), persistido em `localStorage` (`app.layout`,
-  `app.layout.picked`), aplicado via atributo `data-theme` no `<html>`. Só `classico` segue
-  `prefers-color-scheme` do SO; os outros fixam paleta própria. Botão flutuante para reabrir o
-  seletor depois de "Fixar este".
+- **`SeletorTema.tsx`** (Client) — área **"Aparência"** fixa no menu (barra lateral e gaveta do
+  celular): mostra o tema atual e abre as 5 opções. Aplica na hora (`data-theme` no `<html>`) e
+  grava no usuário pela action `salvarTema` (`actions/preferencias.ts`). Ver seção 21.
+- **`MenuMovel.tsx`** (Client) — botão ☰ + gaveta com o menu em telas < 1024 px (seção 20).
 
 ---
 
@@ -661,8 +680,9 @@ labelDeTempo(tempo): string                // label humano da faixa
 
 ## 11. Design system / tokens visuais (`src/app/globals.css`)
 
-CSS puro + Tailwind. Paleta "papel & tipografia serifada" (tema `classico`, o default),
-com variáveis CSS redefinidas por `data-theme` (outros 4 temas) e por `prefers-color-scheme: dark`.
+CSS puro + Tailwind. Variáveis CSS base = paleta "papel & tipografia serifada" (tema `classico`,
+sem `data-theme`, segue `prefers-color-scheme`), redefinidas por `data-theme` nos outros 4 temas.
+O tema **padrão da plataforma é `azul`** (Azul Cubic) — ver seção 21.
 
 | variável | uso |
 |---|---|
@@ -728,15 +748,17 @@ levantamento).
 ```bash
 npm run dev              # next dev — servidor de desenvolvimento (porta 3000)
 npm run build            # prisma generate && next build
-npm run start            # PRODUÇÃO: verificar-ambiente && prisma migrate deploy && seed --producao (só age em banco vazio) && next start
-npm run db:setup         # prisma migrate dev && seed (banco novo de desenvolvimento)
-npm run db:deploy        # prisma migrate deploy — aplica migrations em PRODUÇÃO (nunca usar migrate dev lá)
-npm run db:seed          # roda prisma/seed.ts via tsx (só em banco vazio)
-npm run db:reset         # prisma migrate reset --force && seed  ⚠️ DESTRÓI o banco
+npm run start            # PRODUÇÃO: verificar-ambiente && db:deploy && seed --producao (só age em banco vazio) && next start
+npm run db:deploy        # trava de migrações (verificar-migracoes.ts) && prisma migrate deploy — nunca usar migrate dev em produção
+npm run db:setup         # [só banco local] prisma migrate dev && seed (banco novo de desenvolvimento)
+npm run db:seed          # roda prisma/seed.ts via tsx (só em banco totalmente vazio)
+npm run db:reset         # [só banco local] prisma migrate reset --force && seed  ⚠️ DESTRÓI o banco local
 npm run db:studio        # prisma studio — GUI do banco
 npm run usuario:senha -- <email>   # redefine a senha de um usuário (admin)
-npm run test-metas:add   # tsx prisma/test-metas.ts add
-npm run test-metas:remove
+npm run test-metas:add   # [só banco local] tsx prisma/test-metas.ts add
+npm run test-metas:remove           # [só banco local]
+# [só banco local] = passa antes por prisma/somente-local.ts, que recusa se a DATABASE_URL não for
+# localhost/127.0.0.1 ou se RENDER=true / NODE_ENV=production.
 docker compose -f docker-compose.dev.yml up -d   # sobe o Postgres de desenvolvimento
 ```
 
@@ -767,8 +789,14 @@ de outra pasta, nenhum utilitário é gerado, e o cache do webpack mantém o CSS
   **vínculo entre IDs** recebidos (ex.: a meta pertence à secretaria declarada?).
 - **Identidade vem só de `getCurrentUser()`**: o usuário (`UsuarioSessao`) já traz `nome` e
   `email`, então não é preciso consultar o banco de novo para o nome do ator na auditoria.
-- **Nada de SQL cru**: não há `$queryRaw`/`$executeRaw` no código. Se um dia for necessário,
-  use só a forma de tagged template (parametrizada), nunca `$queryRawUnsafe` com concatenação.
+- **SQL cru só parametrizado**: há `$queryRaw` apenas na forma de tagged template (valores viram
+  parâmetros `$1, $2…`, sem concatenação) em `lib/painel.ts` (situação passada por ação),
+  `propostas/page.tsx` (última nota por proposta, `DISTINCT ON`) e nos scripts de `prisma/`. Nunca
+  `$queryRawUnsafe`/`$executeRawUnsafe`.
+- **Nunca carregar `senhaHash` à toa**: consultas de usuário usam `select` só com os campos
+  exibidos (nome, perfil…). `findMany()` sem `select` em `Usuario` traz o hash junto.
+- **Listas que crescem com o uso são limitadas**: metas paginadas (50), propostas "Suas"/"Outras"
+  (50 + "Ver mais"), auditoria (300 mais recentes). Não volte a carregar tabelas inteiras.
 - **Segredos só em `.env`** (fora do versionamento); documente toda variável nova em `.env.example`.
 - **Status derivado, não armazenado como verdade**: `Acao.status` no banco é um cache
   desatualizável; a UI e as regras de negócio (cobrança, filtros) sempre recalculam via
@@ -814,7 +842,7 @@ de outra pasta, nenhum utilitário é gerado, e o cache do webpack mantém o CSS
 2. **Sem UI para desativar usuário/revogar sessões**: o campo `ativo` e o `sessaoVersao` já são
    respeitados, mas só dá para alterá-los por script/banco.
 3. **Headers de segurança ainda não configurados** (CSP com nonce, HSTS, X-Frame-Options,
-   Referrer-Policy, Permissions-Policy) e `poweredByHeader` ainda ativo.
+   Referrer-Policy, Permissions-Policy). (`poweredByHeader` já está desligado em `next.config.mjs`.)
 4. **Rate limit só no login.** Server Actions críticas (aprovar/rejeitar proposta, cobrar, criar
    usuário, atualizar ação) ainda não têm limite.
 5. **Zod não cobre 100% das actions**: `arquivarMetaCP`, `deletarAcao`, `aprovarProposta`,
@@ -857,8 +885,10 @@ no primeiro deploy real (`plat-hfjl.onrender.com`).
 - **Diagnóstico**: a mensagem JSON `There was a problem with the server configuration` vem do
   `assertConfig` do Auth.js e significa host não confiável (`UntrustedHost`) ou `AUTH_SECRET` ausente
   (`MissingSecret`), nesta ordem. O `verificar-ambiente.ts` agora pega isso no start e diz qual falta.
-- **Migrations rodam no `npm run start`**, não em `preDeployCommand`, que só existe em planos pagos.
-  `migrate deploy` é idempotente e nunca apaga dados.
+- **Migrations rodam no `npm run start`** (`db:deploy`), não em `preDeployCommand`, que só existe em
+  planos pagos. `migrate deploy` é idempotente e nunca recria o banco — mas aplica o que a migração
+  mandar, por isso passa antes pela trava `verificar-migracoes.ts` (seção 18). Se o start falhar, o
+  Render mantém a versão anterior no ar.
 - **Inicialização automática**: o `seed --producao` no start cria organograma, metas e o login
   `prefeito@uba.mg.gov.br` com a senha de `SENHA_INICIAL_ADMIN` quando o banco está vazio; nos
   starts seguintes não faz nada. Sem terminal, sem liberar IP e sem senha nos logs.
@@ -871,3 +901,139 @@ no primeiro deploy real (`plat-hfjl.onrender.com`).
   produção só com `RENDER=true` e as 3 variáveis): migrations + login do prefeito criados no 1º
   start, nada alterado no restart, 0 erros `UntrustedHost`, cookies `__Secure-` atrás de HTTPS,
   rate limit com o IP do 1º item do XFF, 401/307 sem sessão.
+
+---
+
+## 18. Atualizações seguras — os dados do cliente nunca são apagados nem alterados
+
+Regra do produto: **publicar uma versão nova nunca pode apagar o banco nem mexer no que o cliente
+já lançou.** O que garante isso:
+
+| camada | o que faz |
+|---|---|
+| Banco separado do site | O Postgres é um recurso próprio no Render; build e deploy do site não tocam nele. O `build` não acessa o banco. |
+| `prisma/verificar-migracoes.ts` (`npm run db:deploy`, dentro do `start` e do `.bat`) | Antes do `migrate deploy`, lê as migrações **ainda não aplicadas** e cancela o start se alguma tiver `DROP TABLE`, `DROP COLUMN`, `TRUNCATE`, `DELETE FROM`, `UPDATE … SET`, `ALTER COLUMN … TYPE` ou `RENAME`. Nada é alterado e, no Render, a versão anterior continua no ar. Também avisa se uma migração já aplicada foi editada (a edição não vale) e se o banco tem migrações que o código não conhece (versão antiga publicada). |
+| `prisma migrate deploy` | Só aplica migrações pendentes, em ordem; nunca recria o banco (quem recria é `migrate reset`/`migrate dev`, que não rodam em produção). |
+| `prisma/seed.ts --producao` | Roda a cada start, mas só semeia banco **totalmente vazio** (confere 13 tabelas). Não tem mais nenhum `deleteMany` de dados. |
+| `prisma/somente-local.ts` | `db:reset`, `db:setup` e `test-metas:*` recusam rodar se a `DATABASE_URL` não for desta máquina ou se for produção. |
+| Escritas atômicas | `updateAcao` grava situação + snapshot + auditoria numa transação: uma falha no meio não deixa dado pela metade. |
+
+**Como mudar o schema sem risco (padrão "expandir e depois contrair"):**
+1. Só **acrescentar**: coluna nova opcional (`String?`) ou com `@default`, tabela nova, índice novo.
+   Essas migrações passam pela trava sem intervenção.
+2. Para **renomear** um campo: criar o novo, passar o código a gravar nos dois e ler do novo,
+   copiar os valores antigos com uma migração de dados revisada, e só remover o antigo muito depois.
+3. Migração que apaga/reescreve dados só com decisão explícita: **backup antes**, depois
+   `MIGRACAO_DESTRUTIVA_AUTORIZADA=<nome_da_pasta_da_migracao>` nas variáveis do Render, deploy, e
+   **remover a variável** em seguida.
+4. Nunca editar uma migração já publicada; correções vão numa migração nova.
+5. Nunca usar `prisma db push` nem `migrate dev`/`migrate reset` contra o banco de produção.
+
+**Migração que falhou no meio**: o Prisma marca como falha e não aplica mais nada; a trava explica
+e cancela o start. Resolver com `prisma migrate resolve --rolled-back <nome>` (depois de conferir o
+banco) e publicar a migração corrigida com nome novo.
+
+**O que o código NÃO resolve**: o Postgres **gratuito** do Render é apagado ~30 dias após a criação.
+Para dados reais, use plano pago (tem backup automático) e ative os backups.
+
+---
+
+## 19. Desempenho — como as telas foram otimizadas (manter ao evoluir)
+
+Medido em ambiente limitado igual ao plano Render de ~US$ 13 (site 0,5 CPU/512 MB + Postgres
+0,1 CPU/256 MB), com dados de ~1 ano de uso (301 metas, 1.350 ações, 16 mil snapshots, 18 mil
+eventos de auditoria, 150 propostas).
+
+- **Painel** (`lib/painel.ts`):
+  - metas e ações vêm **filtradas pelo banco** (`metasVisiveisWhere` em `rbac.ts`, espelho de
+    `filterVisibleMetas`) e só com as colunas usadas;
+  - a "situação de 30/60/90/180/360 dias atrás" é calculada no banco (uma busca indexada por ação e
+    corte) e fica **10 min em cache para todos** — snapshots novos têm data de agora e não mudam
+    cortes passados, então o cache não mostra número errado;
+  - ações agrupadas por meta uma vez (`Map`), em vez de filtrar a lista inteira por meta/secretaria/período;
+  - a lista de **ações em atraso** (cobranças, respostas, comentários) só é carregada quando o
+    usuário abre o quadro (`actions/painel.ts`); na abertura vão só o total e as cobranças recebidas.
+- **Metas**: paginação de 50, visibilidade no banco, colunas mínimas, ações agrupadas por meta.
+- **Auditoria**: opções dos filtros por `groupBy` no banco (o `distinct` do Prisma lia a tabela
+  inteira três vezes) e em cache de 2 min por usuário (`lib/cache-memoria.ts`); 100 eventos por
+  página; índices `(atorId, quando)` e `(tag, quando)`.
+- **Propostas**: só a última nota de cada proposta (`DISTINCT ON`), 50 por lista + "Ver mais",
+  nomes de secretaria/divisão do cache de organização (5 min). Detalhe: eventos de aplicação
+  buscados pelo índice `(tag, quando)` e pelo alvo da proposta (antes: varredura por texto).
+- **Carregamento visível**: toda tela tem `loading.tsx` (esqueleto no formato da página, aparece no
+  clique); botões de envio usam `BotaoEnviar` ("Salvando…").
+- ⚠️ **Filtros, paginação e "Ver mais" usam navegação normal do navegador** (`<form method=get>` e
+  `<a>`), **não** `<Link>`/`next/form`/`router.push`. No Next 15.5, numa rota com `loading.tsx`, a
+  2ª troca seguida só de parâmetros da mesma tela (ex.: página 2 → 3) é descartada pelo roteador
+  (ele reaproveita o esqueleto pré-carregado da URL sem parâmetros e cancela a resposta). Testado
+  em Edge headless. O esqueleto continua aparecendo, porque o servidor o envia primeiro.
+- **Links de linhas de tabelas/listas têm `prefetch={false}`**: com `loading.tsx`, cada link visível
+  seria pré-carregado (50 pedidos ao servidor por página de Metas). O menu lateral mantém o
+  pré-carregamento (esqueleto instantâneo).
+- **Navegador**: fontes por `next/font` (servidas pelo próprio site, sem Google em tempo de uso);
+  logos redimensionadas (`*-72.png`, ~5 KB cada, antes 178 KB somadas) e `loading="lazy"` (a logo
+  escondida pelo tema não é baixada); cache de 7 dias para `/logo/*`.
+- **Banco**: pool de 5 conexões (`lib/db.ts`, `DB_CONEXOES`); consultas de usuário sem `senhaHash`.
+
+Ao criar telas novas: filtre no banco (não em memória), selecione só as colunas usadas, limite
+listas que crescem, crie o `loading.tsx` da rota e use `BotaoEnviar` nos formulários.
+
+---
+
+## 20. Layout responsivo (celular, tablet, telas grandes)
+
+Breakpoints do Tailwind: `sm` 640 · `md` 768 · `lg` 1024 · `xl` 1280. Testado em Edge headless
+nas larguras 360, 390, 768, 1024, 1366 e 1920 px, em todas as telas (0 estouro horizontal, inclusive
+dentro da área principal), no modo claro e no escuro.
+
+| faixa | estrutura (`components/AppShell.tsx`) |
+|---|---|
+| < 1024 px (celular, tablet em pé) | barra superior compacta e fixa no topo; menu em gaveta (`MenuMovel.tsx`: ☰, fecha ao navegar, no fundo escuro ou com Esc, trava a rolagem por trás); a página rola normalmente; "Sair" e a área "Aparência" (tema) ficam na gaveta |
+| ≥ 1024 px | barra superior + barra lateral de 240 px; só a área principal rola (como antes) |
+| ≥ 1400 px de conteúdo | o conteúdo fica centralizado com largura máxima de 1400 px |
+
+**Classes utilitárias em `globals.css`** (bloco "RESPONSIVO"):
+- `.tabela-rolavel`: envolve toda tabela; se ela não couber, rola de lado dentro do quadro.
+- `.filtros` + `.select-filtro`: barra de filtros em grade 2 colunas no celular, em linha a partir de 768 px.
+- `.popover-form`: menus flutuantes (Rejeitar, Arquivar) viram bloco abaixo do botão no celular.
+- `.linha-atraso` / `.linha-atraso-acoes`: linha do quadro de atrasos; botões descem no celular.
+- No celular: campos com 16 px (o Safari do iPhone dá zoom em campo menor), `.panel` e `.tbl` mais
+  compactos, `.pill` pode quebrar linha. Em telas de toque, `.btn-sm` tem no mínimo 38 px de altura.
+
+**Padrão das tabelas**: colunas secundárias somem por faixa (`hidden md:table-cell`,
+`hidden lg:table-cell`…) e o dado reaparece dentro da 1ª coluna com o inverso (`md:hidden`), para
+nada se perder no celular. Ex.: Metas (secretaria e prazo sob o nome), Auditoria (ator, tipo e
+entidade junto do evento), Usuários (e-mail, perfil e lotações sob o nome), ações da meta.
+
+**Grades**: números do painel `grid-cols-2 lg:grid-cols-4`; fatos da meta `2 → 3 → 5` colunas;
+formulários de ação `1 → 3` (md) e `1 → 2` (sm); organograma `1 → 2` (lg). Os `loading.tsx` usam as
+mesmas grades, e `EsqueletoTabela` converte larguras fixas em proporções.
+
+**Modo escuro (tema Clássico)**: `--navy-surface` passou a ser escuro (#1F3E5C) no escuro — antes a
+barra superior e os botões primários ficavam com texto claro sobre azul claro.
+
+Ao criar telas novas: envolva tabelas em `.tabela-rolavel`, use grade com `grid-cols-1 sm:…`, some
+colunas secundárias com o padrão acima e teste em 360 px.
+
+---
+
+## 21. Temas de cores por usuário
+
+- **Padrão: Azul Cubic** (`TEMA_PADRAO` em `src/lib/temas.ts`) — vale na tela de login e para
+  quem nunca escolheu (`Usuario.tema = null`).
+- **Onde trocar**: área **"Aparência"** no menu (barra lateral ≥ 1024 px; gaveta ☰ no celular/tablet),
+  componente `SeletorTema.tsx`. A troca aplica na hora e é gravada por `salvarTema`
+  (`actions/preferencias.ts`: valida com Zod, só altera o próprio usuário; não vai para a
+  auditoria por ser preferência visual). Se a gravação falhar, o tema volta ao anterior e avisa.
+- **Acompanha o login**: fica no banco, não no navegador — vale em qualquer computador ou celular.
+- **Sem "piscar"**: o `RootLayout` (`src/app/layout.tsx`) lê o tema via `getCurrentUser()`
+  (memorizado por requisição; o campo vem na mesma consulta da sessão) e já entrega
+  `<html data-theme="…">`. `classico` = sem atributo (segue claro/escuro do aparelho).
+- **Temas disponíveis** (lista e amostras em `src/lib/temas.ts`; paletas em `globals.css`):
+  `azul`, `turquesa`, `classico`, `petroleo`, `marrom`. Para criar um tema: bloco
+  `:root[data-theme="novo"]` em `globals.css` com todas as variáveis + item em `TEMAS`.
+- Substituiu o antigo `LayoutPicker` (faixa no topo + botão flutuante, salvo só em
+  `localStorage`). As chaves antigas `app.layout*` no navegador são ignoradas.
+- Migração `20260926120000_tema_do_usuario`: só `ADD COLUMN "tema" TEXT` (passa pela trava).
+- `Iniciar Plano de Metas.bat` agora roda `prisma generate` depois das migrações, para o
+  ambiente local reconhecer campos novos do schema.

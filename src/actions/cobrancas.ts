@@ -77,7 +77,7 @@ export async function cobrarAcao(input: {
     };
   }
 
-  const nome = (await prisma.usuario.findUnique({ where: { id: user.id } }))?.nome ?? '?';
+  const nome = user.nome;
   const respLabel = acao.responsavel?.nome ?? 'responsável';
   const msgExtra = parsed.data.mensagem?.trim();
   const msg = msgExtra
@@ -147,7 +147,7 @@ export async function responderCobranca(input: {
     return { ok: false, erro: 'Esta cobrança já foi respondida' };
   }
 
-  const nome = (await prisma.usuario.findUnique({ where: { id: user.id } }))?.nome ?? '?';
+  const nome = user.nome;
 
   await prisma.auditoria.create({
     data: {
@@ -213,7 +213,7 @@ export async function comentarAcao(input: { acaoId: string; mensagem: string }):
     throw new RBACError('Sem permissão para comentar nesta ação');
   }
 
-  const nome = (await prisma.usuario.findUnique({ where: { id: user.id } }))?.nome ?? '?';
+  const nome = user.nome;
 
   await prisma.auditoria.create({
     data: {

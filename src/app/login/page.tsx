@@ -45,9 +45,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             Desenvolvido por
           </span>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo/cubic-horizontal-principal.png" alt="Cubic Consultoria" className="brand-logo-color" style={{ height: 32, width: 'auto' }} />
+          <img src="/logo/cubic-horizontal-principal-72.png" alt="Cubic Consultoria" className="brand-logo-color" width={94} height={32} decoding="async" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo/cubic-horizontal-branco.png" alt="Cubic Consultoria" className="brand-logo-white" style={{ height: 32, width: 'auto' }} />
+          <img src="/logo/cubic-horizontal-branco-72.png" alt="Cubic Consultoria" className="brand-logo-white" width={94} height={32} decoding="async" />
         </div>
       </div>
     </main>

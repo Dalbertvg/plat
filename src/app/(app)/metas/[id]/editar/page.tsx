@@ -4,6 +4,7 @@ import { can } from '@/lib/rbac';
 import { atualizarMetaCP, arquivarMetaCP, criarAcao, atualizarAcaoDados, deletarAcao } from '@/actions/metas';
 import { fmtPct, fmtAlvo, TEMPO_OPCOES, labelDeTempo, calcPrazoFinal, computeStatusAcao, fmtMesAno } from '@/lib/format';
 import Link from 'next/link';
+import { BotaoEnviar } from '@/components/BotaoEnviar';
 import { notFound, redirect } from 'next/navigation';
 import { UnidadeInput } from './UnidadeInput';
 import { MesAnoPicker } from './MesAnoPicker';
@@ -21,7 +22,7 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
       metaLP: true,
       secretariaDona: true,
       divisaoExecutora: true,
-      acoes: { include: { responsavel: true }, orderBy: { id: 'asc' } },
+      acoes: { include: { responsavel: { select: { nome: true } } }, orderBy: { id: 'asc' } },
       participantes: true
     }
   });
@@ -45,7 +46,8 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
           { perfil: 'secretario', lotacoes: { some: { secretariaId: m.secretariaDonaId } } }
         ]
       },
-      orderBy: { nome: 'asc' }
+      orderBy: { nome: 'asc' },
+      select: { id: true, nome: true }
     })
   ]);
 
@@ -57,20 +59,20 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
 
   return (
     <>
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <Link href={`/metas/${m.id}`} className="btn btn-ghost btn-sm">← Voltar para a meta</Link>
         <Link href="/metas" className="btn btn-ghost btn-sm">Ir para lista de metas</Link>
       </div>
 
       <div className="panel mb-4" style={{ maxWidth: 820 }}>
-        <div className="flex justify-between items-start gap-4 pb-3 mb-4 border-b" style={{ borderColor: 'var(--rule)' }}>
-          <div>
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 sm:gap-4 pb-3 mb-4 border-b" style={{ borderColor: 'var(--rule)' }}>
+          <div className="min-w-0">
             <h1 className="font-display text-[22px] leading-tight m-0 mb-1" style={{ letterSpacing: '-0.01em' }}>Editar meta</h1>
             <div className="font-mono text-[11.5px]" style={{ color: 'var(--ink-3)' }}>
               <code>{m.id}</code> · Capítulo {m.metaLP.capitulo} · {m.metaLP.titulo}
             </div>
           </div>
-          <div className="text-right text-[12px]" style={{ color: 'var(--ink-3)' }}>
+          <div className="sm:text-right text-[12px]" style={{ color: 'var(--ink-3)' }}>
             <div>Dona: <b style={{ color: 'var(--ink-2)' }}>{m.secretariaDona.nome}</b></div>
             <div className="mt-0.5">(a secretaria dona não pode ser alterada aqui)</div>
           </div>
@@ -105,7 +107,7 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
 
           <div className="field">
             <label className="field-lbl">Secretarias participantes</label>
-            <div className="grid grid-cols-2 gap-1.5" style={{ padding: 8, background: 'var(--paper-3)', borderRadius: 3, border: '1px solid var(--rule)', maxHeight: 220, overflowY: 'auto' }}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5" style={{ padding: 8, background: 'var(--paper-3)', borderRadius: 3, border: '1px solid var(--rule)', maxHeight: 220, overflowY: 'auto' }}>
               {secretarias.filter(s => s.id !== m.secretariaDonaId).map(s => (
                 <label key={s.id} className="flex items-center gap-1.5 text-[12.5px]" style={{ color: 'var(--ink-2)' }}>
                   <input type="checkbox" name="participantes" value={s.id} defaultChecked={participantesIds.has(s.id)} />
@@ -117,7 +119,7 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
 
           <div className="flex justify-end items-center gap-2 mt-4 pt-3 border-t" style={{ borderColor: 'var(--rule)' }}>
             <Link href={`/metas/${m.id}`} className="btn btn-ghost">Cancelar</Link>
-            <button type="submit" className="btn btn-primary">Salvar alterações</button>
+            <BotaoEnviar className="btn btn-primary" enviando="Salvando…">Salvar alterações</BotaoEnviar>
           </div>
         </form>
 
@@ -125,7 +127,7 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
           <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--rule)' }}>
             <details className="relative">
               <summary className="btn btn-danger btn-sm list-none cursor-pointer inline-block">Arquivar meta…</summary>
-              <form action={arquivarMetaCP} className="absolute left-0 top-full mt-1 z-10 p-3 w-80" style={{ background: 'var(--panel)', border: '1px solid var(--rule-strong)', borderRadius: 3 }}>
+              <form action={arquivarMetaCP} className="popover-form absolute left-0 top-full mt-1 z-10 p-3 w-80" style={{ background: 'var(--panel)', border: '1px solid var(--rule-strong)', borderRadius: 3 }}>
                 <input type="hidden" name="metaCPId" value={m.id} />
                 <div className="text-[12.5px] mb-2" style={{ color: 'var(--ink-2)' }}>
                   A meta sai da lista ativa, mas o histórico (ações, propostas, auditoria) é preservado. Não apaga nada.
@@ -141,7 +143,7 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
                     style={{ minHeight: 60, fontSize: 12.5 }}
                   />
                 </div>
-                <button className="btn btn-danger btn-sm w-full" type="submit">Confirmar arquivamento</button>
+                <BotaoEnviar className="btn btn-danger btn-sm w-full" enviando="Arquivando…">Confirmar arquivamento</BotaoEnviar>
               </form>
             </details>
           </div>
@@ -156,7 +158,7 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
         {m.acoes.map(a => (
           <details key={a.id} className="mb-2 border" style={{ borderColor: 'var(--rule)' }}>
             <summary className="cursor-pointer p-2.5 flex justify-between items-center gap-3 list-none" style={{ background: 'var(--paper-3)' }}>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <div className="font-medium text-[13px]">{a.nome}</div>
                 <div className="text-[11.5px] mt-0.5" style={{ color: 'var(--ink-3)' }}>
                   Alvo <code>{fmtAlvo(a.alvo, a.unidade)}</code> · Sit. <code>{fmtPct(a.situacaoAtual)}</code> · Tempo: {labelDeTempo(a.tempoNecessario)} · {a.responsavel?.nome ?? 'sem responsável'}
@@ -171,7 +173,7 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
                   <label className="field-lbl">Nome</label>
                   <input name="nome" className="input" required minLength={3} defaultValue={a.nome} />
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-3">
                   <div className="field">
                     <label className="field-lbl">Tempo necessário</label>
                     <select name="tempoNecessario" className="select" required defaultValue={a.tempoNecessario ?? ''}>
@@ -201,7 +203,7 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
                     </select>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
                   <div className="field">
                     <label className="field-lbl">Início · mês / ano</label>
                     <MesAnoPicker name="inicio" defaultValue={a.inicio} label="Mês e ano de início" />
@@ -218,12 +220,12 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
                   </div>
                 </div>
                 <div className="flex justify-end mt-2">
-                  <button type="submit" className="btn btn-primary btn-sm">Salvar ação</button>
+                  <BotaoEnviar enviando="Salvando…">Salvar ação</BotaoEnviar>
                 </div>
               </form>
               <form action={deletarAcao} className="mt-2 pt-2 border-t" style={{ borderColor: 'var(--rule)' }}>
                 <input type="hidden" name="acaoId" value={a.id} />
-                <button type="submit" className="btn btn-danger btn-sm">Excluir ação</button>
+                <BotaoEnviar className="btn btn-danger btn-sm" enviando="Excluindo…">Excluir ação</BotaoEnviar>
               </form>
             </div>
           </details>
@@ -239,7 +241,7 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
               <label className="field-lbl">Nome</label>
               <input name="nome" className="input" required minLength={3} placeholder="Ex.: Contratar equipe de campo" />
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-x-3">
               <div className="field">
                 <label className="field-lbl">Tempo necessário</label>
                 <select name="tempoNecessario" className="select" required defaultValue="">
@@ -269,7 +271,7 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
               <div className="field">
                 <label className="field-lbl">Início · mês / ano</label>
                 <MesAnoPicker name="inicio" label="Mês e ano de início" />
@@ -288,7 +290,7 @@ export default async function EditarMetaPage({ params }: { params: Promise<{ id:
               </div>
             </div>
             <div className="flex justify-end mt-2">
-              <button type="submit" className="btn btn-primary btn-sm">Criar ação</button>
+              <BotaoEnviar enviando="Criando…">Criar ação</BotaoEnviar>
             </div>
           </form>
         </details>

@@ -55,6 +55,9 @@ model Usuario {
   // Incrementar invalida todas as sessões (JWT) já emitidas para o usuário:
   // o valor viaja no token e é conferido contra o banco a cada requisição.
   sessaoVersao  Int      @default(0)
+  // Tema de cores escolhido em "Aparência", no menu. null = padrão da
+  // plataforma (Azul Cubic). Valores válidos em src/lib/temas.ts.
+  tema          String?
 
   lotacoes            Lotacao[]
   propostasAutoradas  Proposta[]  @relation("PropostaAutor")
@@ -131,6 +134,7 @@ model MetaCPParticipante {
   secretaria   Secretaria  @relation(fields: [secretariaId], references: [id])
 
   @@id([metaCPId, secretariaId])
+  @@index([secretariaId])
 }
 
 model Acao {
@@ -234,6 +238,9 @@ model Proposta {
 
   @@index([status])
   @@index([proximoRevisor])
+  @@index([autorId])
+  @@index([secretariaDonaId])
+  @@index([divisaoOrigemId])
 }
 
 model Comentario {
@@ -272,6 +279,9 @@ model Auditoria {
   @@index([quando])
   @@index([entidade, entidadeId])
   @@index([parentId])
+  // Filtros da tela de Auditoria (ator / tipo), já na ordem de exibição.
+  @@index([atorId, quando])
+  @@index([tag, quando])
 }
 
 // ============================================================================

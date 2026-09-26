@@ -4,8 +4,9 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { prisma } from './db';
 import type { Perfil, UserContext } from './rbac';
+import { temaEfetivo, type Tema } from './temas';
 
-export type UsuarioSessao = UserContext & { nome: string; email: string };
+export type UsuarioSessao = UserContext & { nome: string; email: string; tema: Tema };
 
 const PERFIS: ReadonlySet<string> = new Set<Perfil>(['prefeito', 'secretario', 'chefe']);
 
@@ -19,7 +20,10 @@ export const getCurrentUser = cache(async (): Promise<UsuarioSessao | null> => {
 
   const usuario = await prisma.usuario.findUnique({
     where: { id },
-    include: { lotacoes: true }
+    select: {
+      id: true, nome: true, email: true, perfil: true, ativo: true, sessaoVersao: true, tema: true,
+      lotacoes: { select: { secretariaId: true, divisaoId: true } }
+    }
   });
   if (!usuario || !usuario.ativo) return null;
   if (usuario.sessaoVersao !== session.user.sessaoVersao) return null;
@@ -29,6 +33,7 @@ export const getCurrentUser = cache(async (): Promise<UsuarioSessao | null> => {
     id: usuario.id,
     nome: usuario.nome,
     email: usuario.email,
+    tema: temaEfetivo(usuario.tema),
     perfil: usuario.perfil as Perfil,
     lotacoes: usuario.lotacoes.map(l => ({ secretariaId: l.secretariaId, divisaoId: l.divisaoId }))
   };

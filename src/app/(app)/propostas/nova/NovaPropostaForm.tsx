@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
+import { BotaoEnviar } from '@/components/BotaoEnviar';
 import { submeterProposta } from '@/actions/propostas';
 
 type Sec = { id: string; nome: string };
@@ -171,15 +172,15 @@ export function NovaPropostaForm({
         Próximo revisor: <b>{revisorHint}</b>
       </div>
 
-      <div className="flex justify-end gap-2 mt-4">
+      <div className="flex flex-wrap justify-end gap-2 mt-4">
         <Link href="/propostas" className="btn btn-ghost">Cancelar</Link>
-        <button
-          type="submit"
+        <BotaoEnviar
           className="btn btn-primary"
-          disabled={!travadoPelaMeta && precisaMetaAlvo && metasElegiveis.length === 0}
+          enviando="Enviando…"
+          desabilitado={!travadoPelaMeta && precisaMetaAlvo && metasElegiveis.length === 0}
         >
           {travadoPelaMeta ? 'Enviar proposta de edição' : 'Enviar proposta'}
-        </button>
+        </BotaoEnviar>
       </div>
     </form>
   );

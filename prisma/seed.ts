@@ -296,17 +296,40 @@ function senhaAdminDoAmbiente(): string {
   return senha;
 }
 
+// Tabelas com pelo menos uma linha (RateLimit fica de fora: é temporária).
+async function tabelasComDados(): Promise<string[]> {
+  const checagens: Array<[string, Promise<unknown>]> = [
+    ['Usuario', prisma.usuario.findFirst({ select: { id: true } })],
+    ['Lotacao', prisma.lotacao.findFirst({ select: { id: true } })],
+    ['Secretaria', prisma.secretaria.findFirst({ select: { id: true } })],
+    ['Divisao', prisma.divisao.findFirst({ select: { id: true } })],
+    ['MetaLP', prisma.metaLP.findFirst({ select: { id: true } })],
+    ['MetaCP', prisma.metaCP.findFirst({ select: { id: true } })],
+    ['MetaCPParticipante', prisma.metaCPParticipante.findFirst({ select: { metaCPId: true } })],
+    ['Acao', prisma.acao.findFirst({ select: { id: true } })],
+    ['AcaoSnapshot', prisma.acaoSnapshot.findFirst({ select: { id: true } })],
+    ['Anexo', prisma.anexo.findFirst({ select: { id: true } })],
+    ['Proposta', prisma.proposta.findFirst({ select: { id: true } })],
+    ['Comentario', prisma.comentario.findFirst({ select: { id: true } })],
+    ['Auditoria', prisma.auditoria.findFirst({ select: { id: true } })]
+  ];
+  const achados = await Promise.all(checagens.map(([, consulta]) => consulta));
+  return checagens.filter((_, i) => achados[i] != null).map(([tabela]) => tabela);
+}
+
 async function main() {
-  // O seed apaga tudo antes de semear: nunca pode rodar sobre dados reais.
-  const existentes = await prisma.usuario.count();
-  if (existentes > 0) {
+  // O seed só semeia banco VAZIO e nunca apaga nem altera nada: basta uma
+  // linha em qualquer tabela para ele não fazer nada (produção, a cada start)
+  // ou abortar (desenvolvimento).
+  const ocupadas = await tabelasComDados();
+  if (ocupadas.length) {
     if (PRODUCAO) {
-      console.log('[inicializacao] Banco já inicializado — nada a fazer.');
+      console.log('[inicializacao] Banco já inicializado — nada a fazer (o seed nunca altera dados existentes).');
       return;
     }
     console.error(
-      `Abortado: o banco já tem ${existentes} usuário(s) e o seed APAGA todos os dados.\n` +
-      'Ele só roda em banco vazio. Para recriar o banco de DESENVOLVIMENTO do zero: npm run db:reset'
+      `Abortado: o banco já tem dados (${ocupadas.join(', ')}). O seed só roda em banco vazio.\n` +
+      'Para recriar o banco de DESENVOLVIMENTO do zero: npm run db:reset'
     );
     process.exit(1);
   }
@@ -326,20 +349,9 @@ async function main() {
 
   // Tudo ou nada: se cair no meio, o próximo start encontra o banco vazio de novo.
   await prisma.$transaction(async db => {
-    console.log('Limpando dados anteriores...');
+    // Não há "limpeza" aqui: o banco já foi conferido como vazio acima. Só
+    // contadores de tentativa de login (dado temporário) podem existir.
     await db.rateLimit.deleteMany();
-    await db.anexo.deleteMany();
-    await db.auditoria.deleteMany();
-    await db.comentario.deleteMany();
-    await db.proposta.deleteMany();
-    await db.acao.deleteMany();
-    await db.metaCPParticipante.deleteMany();
-    await db.metaCP.deleteMany();
-    await db.metaLP.deleteMany();
-    await db.lotacao.deleteMany();
-    await db.usuario.deleteMany();
-    await db.divisao.deleteMany();
-    await db.secretaria.deleteMany();
 
     console.log('Semeando secretarias e divisões...');
     for (const s of secretarias) await db.secretaria.create({ data: s });

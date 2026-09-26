@@ -6,6 +6,8 @@
 // concedido por qualquer lotação do usuário.
 // ============================================================================
 
+import type { Prisma } from '@prisma/client';
+
 export type Perfil = 'prefeito' | 'secretario' | 'chefe';
 
 export type Lotacao = { secretariaId: string; divisaoId: string | null };
@@ -52,6 +54,20 @@ export function filterVisibleMetas<M extends { secretariaDonaId: string; id: str
       .map(p => p.metaCPId)
   );
   return metas.filter(m => minhasSecIds.has(m.secretariaDonaId) || metasConjuntas.has(m.id));
+}
+
+// Mesma regra de filterVisibleMetas, como filtro do Prisma: o banco devolve só
+// as metas visíveis em vez de a página carregar todas e filtrar em memória.
+// Manter as duas em sincronia.
+export function metasVisiveisWhere(u: UserContext): Prisma.MetaCPWhereInput {
+  if (u.perfil === 'prefeito') return {};
+  const minhasSecIds = Array.from(new Set(u.lotacoes.map(l => l.secretariaId)));
+  return {
+    OR: [
+      { secretariaDonaId: { in: minhasSecIds } },
+      { participantes: { some: { secretariaId: { in: minhasSecIds } } } }
+    ]
+  };
 }
 
 // Write scope: quais secretárias o usuário pode ALTERAR direto?

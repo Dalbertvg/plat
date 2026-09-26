@@ -25,7 +25,7 @@ const PERIODS: { key: PeriodKey; short: string; full: string }[] = [
 export function RankingSecretarias({ secStats }: { secStats: SecStat[] }) {
   return (
     <div className="panel">
-      <div className="flex justify-between items-baseline pb-3 mb-4 border-b" style={{ borderColor: 'var(--rule)' }}>
+      <div className="flex flex-wrap justify-between items-baseline gap-2 pb-3 mb-4 border-b" style={{ borderColor: 'var(--rule)' }}>
         <div>
           <div className="font-display text-[18px] font-semibold">Ranking por secretaria</div>
           <div className="text-[13px] mt-1" style={{ color: 'var(--ink-3)' }}>
@@ -36,8 +36,9 @@ export function RankingSecretarias({ secStats }: { secStats: SecStat[] }) {
               style={{ color: 'var(--brass)' }}>Ver todas →</Link>
       </div>
 
-      <div style={{ overflowX: 'auto' }}>
-        <table className="tbl" style={{ minWidth: 1000 }}>
+      {/* Muitas colunas de período: no celular/tablet a tabela rola de lado. */}
+      <div className="tabela-rolavel">
+        <table className="tbl" style={{ minWidth: 900 }}>
           <thead>
             <tr>
               <th style={{ width: 40, textAlign: 'right' }}>#</th>

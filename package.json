@@ -8,15 +8,15 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
-    "start": "tsx prisma/verificar-ambiente.ts && prisma migrate deploy && tsx prisma/seed.ts --producao && next start",
-    "db:setup": "prisma migrate dev && npm run db:seed",
-    "db:deploy": "prisma migrate deploy",
+    "start": "tsx prisma/verificar-ambiente.ts && npm run db:deploy && tsx prisma/seed.ts --producao && next start",
+    "db:deploy": "tsx prisma/verificar-migracoes.ts && prisma migrate deploy",
+    "db:setup": "tsx prisma/somente-local.ts && prisma migrate dev && npm run db:seed",
     "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma migrate reset --force && npm run db:seed",
+    "db:reset": "tsx prisma/somente-local.ts && prisma migrate reset --force && npm run db:seed",
     "db:studio": "prisma studio",
     "usuario:senha": "tsx prisma/definir-senha.ts",
-    "test-metas:add": "tsx prisma/test-metas.ts add",
-    "test-metas:remove": "tsx prisma/test-metas.ts remove"
+    "test-metas:add": "tsx prisma/somente-local.ts && tsx prisma/test-metas.ts add",
+    "test-metas:remove": "tsx prisma/somente-local.ts && tsx prisma/test-metas.ts remove"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

@@ -95,7 +95,7 @@ export function NovoUsuarioForm({
         A senha inicial é gerada automaticamente e exibida uma única vez após o cadastro.
       </div>
 
-      <div className="flex justify-end gap-2 mt-4">
+      <div className="flex flex-wrap justify-end gap-2 mt-4">
         <Link href="/usuarios" className="btn btn-ghost">Cancelar</Link>
         <button type="submit" className="btn btn-primary" disabled={pendente}>
           {pendente ? 'Cadastrando…' : 'Cadastrar'}
@@ -134,7 +134,7 @@ function CredencialCriada({ nome, email, senha }: { nome: string; email: string;
         <code className="text-[16px] font-semibold tracking-wider select-all">{senha}</code>
       </div>
 
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <button type="button" className="btn" onClick={copiar}>
           {copiado ? '✓ Copiado' : 'Copiar credenciais'}
         </button>

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
+import { BotaoEnviar } from '@/components/BotaoEnviar';
 import { criarMetaCP } from '@/actions/metas';
 
 type Sec = { id: string; nome: string };
@@ -89,7 +90,7 @@ export function NovaMetaForm({
 
       <div className="field">
         <label className="field-lbl">Secretarias participantes (opcional)</label>
-        <div className="grid grid-cols-2 gap-1.5" style={{ padding: 8, background: 'var(--paper-3)', borderRadius: 3, border: '1px solid var(--rule)', maxHeight: 220, overflowY: 'auto' }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5" style={{ padding: 8, background: 'var(--paper-3)', borderRadius: 3, border: '1px solid var(--rule)', maxHeight: 220, overflowY: 'auto' }}>
           {secretarias.filter(s => s.id !== secretariaDonaId).map(s => (
             <label key={s.id} className="flex items-center gap-1.5 text-[12.5px]" style={{ color: 'var(--ink-2)' }}>
               <input type="checkbox" name="participantes" value={s.id} />
@@ -102,9 +103,9 @@ export function NovaMetaForm({
         </div>
       </div>
 
-      <div className="flex justify-end gap-2 mt-4">
+      <div className="flex flex-wrap justify-end gap-2 mt-4">
         <Link href="/metas" className="btn btn-ghost">Cancelar</Link>
-        <button type="submit" className="btn btn-primary">Criar meta</button>
+        <BotaoEnviar className="btn btn-primary" enviando="Criando…">Criar meta</BotaoEnviar>
       </div>
     </form>
   );

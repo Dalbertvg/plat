@@ -1,310 +1,99 @@
 import { prisma } from '@/lib/db';
 import { getCurrentUser } from '@/lib/session';
-import { filterVisibleMetas } from '@/lib/rbac';
 import { fmtPct, fmtDateTime, pctFromAcoes, computeStatusAcao, calcPrazoFinal } from '@/lib/format';
+import {
+  carregarBasePainel, carregarNomesOrganizacao, situacoesPassadas, DIAS_CORTE,
+  classificarAtrasadas, detalharAtrasadas, type AcaoPainel
+} from '@/lib/painel';
 import Link from 'next/link';
 import { RankingSecretarias, type PeriodKey, type SecStat } from './RankingSecretarias';
-import { AcoesAtrasadas, type AcaoAtrasadaRow } from './AcoesAtrasadas';
+import { AcoesAtrasadas } from './AcoesAtrasadas';
 import { ProximosPrazos, type PrazoRow } from './ProximosPrazos';
 
 export const dynamic = 'force-dynamic';
 
-const PERIOD_DAYS: Record<PeriodKey, number | null> = {
-  '30d': 30,
-  '60d': 60,
-  '90d': 90,
-  '180d': 180,
-  '360d': 360,
-  'total': null // desde o início: usa corte = epoch para forçar situação passada = 0
+// Índice de cada janela no vetor devolvido por situacoesPassadas() (mesma
+// ordem de DIAS_CORTE). O período "total" compara com o início: situação
+// passada = 0 para todas as ações, sem consulta.
+const PERIOD_INDEX: Record<Exclude<PeriodKey, 'total'>, number> = {
+  '30d': DIAS_CORTE.indexOf(30),
+  '60d': DIAS_CORTE.indexOf(60),
+  '90d': DIAS_CORTE.indexOf(90),
+  '180d': DIAS_CORTE.indexOf(180),
+  '360d': DIAS_CORTE.indexOf(360)
 };
-
-// Reconstitui a "situação em <corte>" de cada ação a partir do último snapshot
-// cujo `quando` <= corte. Ações sem snapshot anterior contam como 0 (baseline
-// conservador). Para o período "completo" o corte é epoch, então tudo dá 0.
-function buildSitEmCorte(
-  snapshots: Array<{ acaoId: string; situacaoAtual: number; quando: Date }>,
-  corte: Date
-): Map<string, number> {
-  const m = new Map<string, number>();
-  // snapshots já vem ordenado por quando DESC
-  for (const s of snapshots) {
-    if (s.quando > corte) continue;
-    if (!m.has(s.acaoId)) m.set(s.acaoId, s.situacaoAtual);
-  }
-  return m;
-}
-
-// Dias em atraso derivados de (inicio + máx do tempoNecessario). Positivo quando
-// o prazo já venceu; null quando não dá pra calcular (falta inicio ou tempo).
-function diasEmAtrasoDerivado(inicio: string | null, tempo: string | null): number | null {
-  const prazo = calcPrazoFinal(inicio, tempo);
-  if (!prazo) return null;
-  const diff = Date.now() - prazo.getTime();
-  if (diff <= 0) return null;
-  return Math.floor(diff / (24 * 60 * 60 * 1000));
-}
-
-async function buildAtrasoRows(
-  acoesAtrasadas: Array<{
-    id: string; nome: string; metaCPId: string; situacaoAtual: number;
-    prazo: string | null; inicio: string | null; tempoNecessario: string | null;
-    responsavelId: string | null;
-    ultJustificativa: string | null; ultJustQuando: Date | null;
-  }>,
-  user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>
-): Promise<AcaoAtrasadaRow[]> {
-  if (acoesAtrasadas.length === 0) return [];
-
-  const acaoIds = acoesAtrasadas.map(a => a.id);
-  const metaIds = Array.from(new Set(acoesAtrasadas.map(a => a.metaCPId)));
-
-  // Carrega TODAS as cobranças/comentários destas ações (não só as minhas). A
-  // visibilidade por linha é decidida no map abaixo, respeitando a hierarquia.
-  const [metas, todasCobrancas, todasRespostas, todosComentarios] = await Promise.all([
-    prisma.metaCP.findMany({
-      where: { id: { in: metaIds } },
-      include: {
-        secretariaDona: true,
-        divisaoExecutora: true
-      }
-    }),
-    prisma.auditoria.findMany({
-      where: {
-        entidade: 'acao',
-        entidadeId: { in: acaoIds },
-        tag: 'ACAO:COBRANCA'
-      },
-      orderBy: { quando: 'desc' }
-    }),
-    prisma.auditoria.findMany({
-      where: {
-        entidade: 'acao',
-        entidadeId: { in: acaoIds },
-        tag: 'ACAO:RESPOSTA_COBRANCA'
-      }
-    }),
-    prisma.auditoria.findMany({
-      where: {
-        entidade: 'acao',
-        entidadeId: { in: acaoIds },
-        tag: 'ACAO:COMENTARIO'
-      },
-      orderBy: { quando: 'desc' }
-    })
-  ]);
-
-  const responsavelIds = Array.from(
-    new Set(acoesAtrasadas.map(a => a.responsavelId).filter(Boolean) as string[])
-  );
-  const responsaveis = responsavelIds.length
-    ? await prisma.usuario.findMany({ where: { id: { in: responsavelIds } } })
-    : [];
-  const respMap = new Map(responsaveis.map(r => [r.id, r]));
-  const metaMap = new Map(metas.map(m => [m.id, m]));
-
-  // Mapa: cobrançaId → resposta
-  const respostaPorCobranca = new Map<string, typeof todasRespostas[number]>();
-  for (const r of todasRespostas) {
-    if (r.parentId) respostaPorCobranca.set(r.parentId, r);
-  }
-
-  // Agrupa cobranças e comentários por ação
-  const cobrancasPorAcao = new Map<string, typeof todasCobrancas>();
-  for (const c of todasCobrancas) {
-    const arr = cobrancasPorAcao.get(c.entidadeId) ?? [];
-    arr.push(c);
-    cobrancasPorAcao.set(c.entidadeId, arr);
-  }
-  const comentariosPorAcao = new Map<string, typeof todosComentarios>();
-  for (const c of todosComentarios) {
-    const arr = comentariosPorAcao.get(c.entidadeId) ?? [];
-    arr.push(c);
-    comentariosPorAcao.set(c.entidadeId, arr);
-  }
-
-  const rows: AcaoAtrasadaRow[] = acoesAtrasadas.map(a => {
-    const meta = metaMap.get(a.metaCPId);
-    const resp = a.responsavelId ? respMap.get(a.responsavelId) : null;
-    const respPerfil = resp?.perfil ?? null;
-    const secretariaDonaId = meta?.secretariaDonaId;
-    const divisaoExecutoraId = meta?.divisaoExecutoraId;
-    const souResponsavel = a.responsavelId === user.id;
-
-    // Escopo de VISIBILIDADE: quem pode ver essa ação no painel além do
-    // responsável — inclui o chefe da divisão, que acompanha mas não cobra.
-    const escopoVisibilidade =
-      user.perfil === 'prefeito' ||
-      (user.perfil === 'secretario' && !!secretariaDonaId &&
-        user.lotacoes.some(l => l.secretariaId === secretariaDonaId)) ||
-      (user.perfil === 'chefe' && !!divisaoExecutoraId &&
-        user.lotacoes.some(l => l.divisaoId === divisaoExecutoraId));
-
-    // Escopo de COBRANÇA: só prefeito e o secretário dono. Chefe é a base da
-    // hierarquia — não tem subordinado pra cobrar, só responde quando é o
-    // próprio cobrado (anexa mensagem via responderCobranca).
-    const podeCobrarHierarquia =
-      user.perfil === 'prefeito' ||
-      (user.perfil === 'secretario' && !!secretariaDonaId &&
-        user.lotacoes.some(l => l.secretariaId === secretariaDonaId));
-    const podeCobrar = podeCobrarHierarquia && !souResponsavel;
-
-    // Cadeia de notificação de cobranças: quem é notificado quando um superior cobra.
-    // - Responsável direto sempre recebe.
-    // - Se responsável é chefe → secretário da secretaria também.
-    // - Se responsável é secretário → só ele.
-    const ehSecretariaDona = user.perfil === 'secretario' && !!secretariaDonaId &&
-      user.lotacoes.some(l => l.secretariaId === secretariaDonaId);
-
-    const recebiCobranca = souResponsavel ||
-      (ehSecretariaDona && respPerfil === 'chefe');
-
-    const cobrancasDessa = cobrancasPorAcao.get(a.id) ?? [];
-
-    const minhaUltima = cobrancasDessa.find(c => c.atorId === user.id);
-    const mapCobrancaInfo = (c: typeof todasCobrancas[number]) => {
-      const resp = respostaPorCobranca.get(c.id);
-      return {
-        id: c.id,
-        atorId: c.atorId,
-        atorNome: c.atorNome,
-        atorPerfil: c.perfil,
-        quando: c.quando.toISOString(),
-        msg: extractMsgExtra(c.msg),
-        resposta: resp
-          ? { atorNome: resp.atorNome, quando: resp.quando.toISOString(), msg: resp.msg }
-          : null
-      };
-    };
-
-    // cobrancasContraMim: cobranças visíveis para quem está na cadeia de notificação
-    // (responsável direto OU superior hierárquico), excluindo cobranças feitas pelo próprio.
-    const cobrancasContraMim = recebiCobranca
-      ? cobrancasDessa.filter(c => c.atorId !== user.id).map(mapCobrancaInfo)
-      : [];
-    const cobrancasGerenciais = escopoVisibilidade && !recebiCobranca
-      ? cobrancasDessa.filter(c => c.atorId !== user.id).map(mapCobrancaInfo)
-      : [];
-
-    // Comentário livre: o canal do chefe (e de qualquer um no escopo) pra
-    // anexar uma mensagem sem que isso seja uma cobrança.
-    const podeComentar = escopoVisibilidade || souResponsavel;
-    const comentarios = (podeComentar ? comentariosPorAcao.get(a.id) ?? [] : [])
-      .map(c => ({
-        atorNome: c.atorNome,
-        atorPerfil: c.perfil,
-        quando: c.quando.toISOString(),
-        msg: c.msg
-      }));
-
-    return {
-      id: a.id,
-      nome: a.nome,
-      metaCPId: a.metaCPId,
-      metaCPNome: meta?.nome ?? '—',
-      secretariaNome: meta?.secretariaDona.nome ?? '—',
-      divisaoNome: meta?.divisaoExecutora.nome ?? '—',
-      responsavelNome: resp?.nome ?? null,
-      responsavelPerfil: resp?.perfil ?? null,
-      responsavelId: a.responsavelId,
-      prazo: a.prazo,
-      diasEmAtraso: diasEmAtrasoDerivado(a.inicio, a.tempoNecessario),
-      situacaoAtual: a.situacaoAtual,
-      ultimaJustificativa: a.ultJustificativa,
-      ultJustQuando: a.ultJustQuando ? a.ultJustQuando.toISOString() : null,
-      podeCobrar,
-      podeComentar,
-      comentarios,
-      minhaUltimaEm: minhaUltima ? minhaUltima.quando.toISOString() : null,
-      cobrancasContraMim,
-      cobrancasGerenciais,
-      souResponsavel,
-      recebiCobranca,
-      escopoVisibilidade
-    };
-  });
-
-  // Só mostra ações que o usuário tem escopo pra ver:
-  // - prefeito, secretário dono ou chefe da divisão: escopoVisibilidade = true
-  // - responsável ou na cadeia de notificação: recebiCobranca = true
-  // (podeCobrar é mais estrito que escopoVisibilidade — chefe vê mas não cobra)
-  const rowsVisiveis = rows.filter(r => r.escopoVisibilidade || r.recebiCobranca);
-
-  // Mais atrasados primeiro; ações sem prazo por último.
-  rowsVisiveis.sort((x, y) => {
-    const dx = x.diasEmAtraso ?? -1;
-    const dy = y.diasEmAtraso ?? -1;
-    return dy - dx;
-  });
-
-  return rowsVisiveis;
-}
-
-// Extrai só o trecho depois de " — " da msg de auditoria (que é a msg opcional do ator).
-function extractMsgExtra(msg: string): string {
-  const idx = msg.indexOf(' — ');
-  return idx > 0 ? msg.slice(idx + 3).trim() : '';
-}
+const PERIOD_KEYS: PeriodKey[] = ['30d', '60d', '90d', '180d', '360d', 'total'];
 
 export default async function PainelPage() {
   const user = await getCurrentUser();
   if (!user) return <div>Sem usuário.</div>;
 
-  const [secretarias, allMetasCP, acoes, propostasPendentes, propostasResolvidas, participantes] = await Promise.all([
-    prisma.secretaria.findMany(),
-    prisma.metaCP.findMany({ where: { arquivada: false } }),
-    prisma.acao.findMany(),
+  const [{ metas: metasCP, acoes: visibleAcoes }, nomes, sitPassada, propostasPendentes, propostasResolvidas] = await Promise.all([
+    carregarBasePainel(user),
+    carregarNomesOrganizacao(),
+    situacoesPassadas(),
     loadPropostasPendentes(user),
-    loadPropostasResolvidasDoAutor(user),
-    prisma.metaCPParticipante.findMany()
+    loadPropostasResolvidasDoAutor(user)
   ]);
 
-  const metasCP = filterVisibleMetas(user, allMetasCP, participantes);
-  const visibleMetaIds = new Set(metasCP.map(m => m.id));
-  const visibleAcoes = acoes.filter(a => visibleMetaIds.has(a.metaCPId));
-
-  const acaoIds = visibleAcoes.map(a => a.id);
-
-  // Carrega TODOS os snapshots uma vez e reconstrói a situação passada em memória
-  // para cada janela; evita 6 queries e mantém a página rápida.
-  const snapshots = acaoIds.length
-    ? await prisma.acaoSnapshot.findMany({
-        where: { acaoId: { in: acaoIds } },
-        orderBy: { quando: 'desc' },
-        select: { acaoId: true, situacaoAtual: true, quando: true }
-      })
-    : [];
-
   const now = Date.now();
-  const periodKeys: PeriodKey[] = ['30d', '60d', '90d', '180d', '360d', 'total'];
+  const hoje = new Date(now);
 
-  // Para cada janela, monta um "acoesPast" (situação passada aplicada) e um
-  // pctPorMeta pré-calculado, para não recalcular por secretaria depois.
-  const pastByPeriod: Record<PeriodKey, Array<typeof visibleAcoes[number]>> = {} as Record<PeriodKey, Array<typeof visibleAcoes[number]>>;
-  for (const k of periodKeys) {
-    const dias = PERIOD_DAYS[k];
-    const corte = dias == null ? new Date(0) : new Date(now - dias * 24 * 60 * 60 * 1000);
-    const sit = buildSitEmCorte(snapshots, corte);
-    pastByPeriod[k] = visibleAcoes.map(a => ({ ...a, situacaoAtual: sit.get(a.id) ?? 0 }));
+  // Agrupa as ações por meta uma única vez (evita filtrar a lista inteira
+  // para cada meta, secretaria e período).
+  const acoesPorMeta = new Map<string, AcaoPainel[]>();
+  for (const a of visibleAcoes) {
+    const arr = acoesPorMeta.get(a.metaCPId);
+    if (arr) arr.push(a); else acoesPorMeta.set(a.metaCPId, [a]);
   }
 
-  const visibleSecIds = new Set(metasCP.map(m => m.secretariaDonaId));
+  // Progresso ponderado de uma meta com a situação de um período passado.
+  const pctPassado = (acs: AcaoPainel[], k: PeriodKey): number => {
+    if (k === 'total' || !acs.length) return 0;
+    const i = PERIOD_INDEX[k];
+    let num = 0, den = 0;
+    for (const a of acs) {
+      num += (sitPassada.get(a.id)?.[i] ?? 0) * a.peso;
+      den += a.peso;
+    }
+    return den ? num / den : 0;
+  };
+
+  // O ranking (só do prefeito) usa todos os períodos; os demais perfis só
+  // precisam do "vs. 30 dias atrás".
+  const periodosUsados: PeriodKey[] = user.perfil === 'prefeito' ? PERIOD_KEYS : ['30d'];
+  const pctMeta = new Map<string, number>();
+  const pctMetaPassado = new Map<string, Partial<Record<PeriodKey, number>>>();
+  let concluidas = 0;
+  for (const m of metasCP) {
+    const acs = acoesPorMeta.get(m.id) ?? [];
+    const pct = pctFromAcoes(acs);
+    pctMeta.set(m.id, pct);
+    if (acs.length > 0 && pct >= 0.99) concluidas++;
+    const passado: Partial<Record<PeriodKey, number>> = {};
+    for (const k of periodosUsados) passado[k] = pctPassado(acs, k);
+    pctMetaPassado.set(m.id, passado);
+  }
 
   const totalMetas = metasCP.length;
-  const concluidas = metasCP.filter(m => {
-    const acs = visibleAcoes.filter(a => a.metaCPId === m.id);
-    return acs.length > 0 && pctFromAcoes(acs) >= 0.99;
-  }).length;
-  const acoesAtrasadas = visibleAcoes.filter(a => computeStatusAcao(a) === 'atraso');
+  const acoesAtrasadas = visibleAcoes.filter(a => computeStatusAcao(a, hoje) === 'atraso');
   const emAtraso = acoesAtrasadas.length;
 
-  const atrasoRows = await buildAtrasoRows(acoesAtrasadas, user);
+  // Ações em atraso: aqui só o total e as cobranças que o usuário recebeu; a
+  // lista completa vem sob demanda quando ele abre o quadro.
+  const metaCPPorId = new Map(metasCP.map(m => [m.id, m]));
+  const atrasadasVisiveis = await classificarAtrasadas(user, acoesAtrasadas, metaCPPorId);
+  const cobrancasRecebidas = (
+    await detalharAtrasadas(user, atrasadasVisiveis.filter(c => c.recebiCobranca), nomes)
+  ).filter(r => r.cobrancasContraMim.length > 0);
 
   // Próximos prazos: ações que ainda não venceram (as já vencidas aparecem em
   // AcoesAtrasadas), ordenadas pelo prazo mais próximo primeiro.
-  const secretariaNomePorId = new Map(secretarias.map(s => [s.id, s.nome]));
-  const metaCPPorId = new Map(metasCP.map(m => [m.id, m]));
   const prazoRows: PrazoRow[] = visibleAcoes
-    .filter(a => computeStatusAcao(a) !== 'atraso' && computeStatusAcao(a) !== 'concluida')
+    .filter(a => {
+      const st = computeStatusAcao(a, hoje);
+      return st !== 'atraso' && st !== 'concluida';
+    })
     .map(a => {
       const prazo = calcPrazoFinal(a.inicio, a.tempoNecessario);
       if (!prazo) return null;
@@ -315,7 +104,7 @@ export default async function PainelPage() {
         acaoNome: a.nome,
         metaCPId: a.metaCPId,
         metaCPNome: meta?.nome ?? '—',
-        secretariaNome: meta ? (secretariaNomePorId.get(meta.secretariaDonaId) ?? '—') : '—',
+        secretariaNome: meta ? (nomes.secretariaNome.get(meta.secretariaDonaId) ?? '—') : '—',
         prazo,
         diasRestantes
       };
@@ -326,38 +115,41 @@ export default async function PainelPage() {
 
   let pctGeral = 0, pctGeral30d = 0;
   if (metasCP.length) {
-    const sum = metasCP.reduce((s, m) => s + pctFromAcoes(visibleAcoes.filter(a => a.metaCPId === m.id)), 0);
-    const past30 = pastByPeriod['30d'];
-    const sum30 = metasCP.reduce((s, m) => s + pctFromAcoes(past30.filter(a => a.metaCPId === m.id)), 0);
+    let sum = 0, sum30 = 0;
+    for (const m of metasCP) {
+      sum += pctMeta.get(m.id) ?? 0;
+      sum30 += pctMetaPassado.get(m.id)?.['30d'] ?? 0;
+    }
     pctGeral = sum / metasCP.length;
     pctGeral30d = sum30 / metasCP.length;
   }
   const deltaGeral = pctGeral - pctGeral30d;
 
-  const secStats: SecStat[] = secretarias
-    .filter(s => visibleSecIds.has(s.id))
-    .map(s => {
-      const mts = metasCP.filter(m => m.secretariaDonaId === s.id);
-      const pctSum = mts.reduce((sum, m) => sum + pctFromAcoes(visibleAcoes.filter(a => a.metaCPId === m.id)), 0);
-      const pct = mts.length ? pctSum / mts.length : 0;
-
-      const deltas: Record<PeriodKey, number> = {} as Record<PeriodKey, number>;
-      for (const k of periodKeys) {
-        const past = pastByPeriod[k];
-        const sumPast = mts.reduce((sum, m) => sum + pctFromAcoes(past.filter(a => a.metaCPId === m.id)), 0);
-        const pctPast = mts.length ? sumPast / mts.length : 0;
-        deltas[k] = pct - pctPast;
-      }
-
-      return { id: s.id, nome: s.nome, metas: mts.length, pct, deltas };
-    })
-    .filter(x => x.metas > 0)
-    .sort((a, b) => b.pct - a.pct);
+  let secStats: SecStat[] = [];
+  if (user.perfil === 'prefeito') {
+    const metasPorSec = new Map<string, typeof metasCP>();
+    for (const m of metasCP) {
+      const arr = metasPorSec.get(m.secretariaDonaId);
+      if (arr) arr.push(m); else metasPorSec.set(m.secretariaDonaId, [m]);
+    }
+    secStats = nomes.secretarias
+      .map(s => {
+        const mts = metasPorSec.get(s.id) ?? [];
+        const media = (valor: (id: string) => number) =>
+          mts.length ? mts.reduce((acc, m) => acc + valor(m.id), 0) / mts.length : 0;
+        const pct = media(id => pctMeta.get(id) ?? 0);
+        const deltas = {} as Record<PeriodKey, number>;
+        for (const k of PERIOD_KEYS) deltas[k] = pct - media(id => pctMetaPassado.get(id)?.[k] ?? 0);
+        return { id: s.id, nome: s.nome, metas: mts.length, pct, deltas };
+      })
+      .filter(x => x.metas > 0)
+      .sort((a, b) => b.pct - a.pct);
+  }
 
   return (
     <>
       <div className="mb-6">
-        <h1 className="font-display text-[32px] leading-tight m-0" style={{ letterSpacing: '-0.015em' }}>Painel</h1>
+        <h1 className="font-display text-[26px] sm:text-[32px] leading-tight m-0" style={{ letterSpacing: '-0.015em' }}>Painel</h1>
         <p className="text-[15.5px] mt-1.5 m-0" style={{ color: 'var(--ink-3)', maxWidth: '62ch' }}>
           Visão consolidada do Plano de Metas 2025–2028.
         </p>
@@ -369,13 +161,14 @@ export default async function PainelPage() {
             <Link
               key={p.id}
               href={`/propostas/${p.id}`}
+              prefetch={false}
               className="block p-3 border-l-4"
               style={{
                 background: p.status === 'aprovada' ? 'rgba(42,138,42,0.07)' : 'rgba(204,51,51,0.07)',
                 borderColor: p.status === 'aprovada' ? 'var(--ok, #2a8a2a)' : 'var(--danger, #c33)'
               }}
             >
-              <div className="flex justify-between items-center gap-3">
+              <div className="flex flex-wrap justify-between items-center gap-3">
                 <div>
                   <span className="font-mono text-[10px] tracking-widest uppercase" style={{ color: p.status === 'aprovada' ? 'var(--ok, #2a8a2a)' : 'var(--danger, #c33)' }}>
                     {p.status === 'aprovada' ? 'Proposta aprovada' : 'Proposta rejeitada'}
@@ -398,14 +191,14 @@ export default async function PainelPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-px mb-6 border" style={{ background: 'var(--rule)', borderColor: 'var(--rule)' }}>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-px mb-6 border" style={{ background: 'var(--rule)', borderColor: 'var(--rule)' }}>
         <Metric val={fmtPct(pctGeral)} label="Progresso geral" note="Média das metas de curto prazo" delta={deltaGeral} />
         <Metric val={String(totalMetas)} label="Metas ativas" note={`${concluidas} concluídas`} />
         <Metric val={String(emAtraso)} label="Ações em atraso" note="Requerem justificativa" />
         <Metric val={String(propostasPendentes.length)} label="Propostas p/ você" note="Aguardando sua análise" />
       </div>
 
-      <AcoesAtrasadas rows={atrasoRows} />
+      <AcoesAtrasadas total={atrasadasVisiveis.length} rowsComCobranca={cobrancasRecebidas} />
 
       <div className="mb-4">
         <ProximosPrazos rows={prazoRows} />
@@ -419,7 +212,7 @@ export default async function PainelPage() {
 
       <div style={{ maxWidth: 720 }}>
         <div className="panel">
-          <div className="flex justify-between items-baseline pb-3 mb-4 border-b" style={{ borderColor: 'var(--rule)' }}>
+          <div className="flex flex-wrap justify-between items-baseline gap-2 pb-3 mb-4 border-b" style={{ borderColor: 'var(--rule)' }}>
             <div className="font-display text-[18px] font-semibold">Propostas na sua caixa</div>
             <Link href="/propostas" className="font-mono text-[12px] tracking-wider uppercase" style={{ color: 'var(--brass)' }}>Abrir caixa →</Link>
           </div>
@@ -448,13 +241,13 @@ export default async function PainelPage() {
 
 function Metric({ val, label, note, delta }: { val: string; label: string; note?: string; delta?: number }) {
   return (
-    <div className="p-5" style={{ background: 'var(--panel)' }}>
-      <div className="flex items-baseline gap-2">
-        <div className="font-display text-[36px] leading-none tabular-nums" style={{ color: 'var(--navy)', letterSpacing: '-0.02em' }}>{val}</div>
+    <div className="p-4 sm:p-5 min-w-0" style={{ background: 'var(--panel)' }}>
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <div className="font-display text-[28px] sm:text-[36px] leading-none tabular-nums" style={{ color: 'var(--navy)', letterSpacing: '-0.02em' }}>{val}</div>
         {delta !== undefined && <DeltaBadge delta={delta} />}
       </div>
-      <div className="font-mono text-[12px] tracking-widest uppercase mt-2" style={{ color: 'var(--ink-3)' }}>{label}</div>
-      {note && <div className="text-[14px] mt-1" style={{ color: 'var(--ink-2)' }}>{note}</div>}
+      <div className="font-mono text-[11px] sm:text-[12px] tracking-wider sm:tracking-widest uppercase mt-2" style={{ color: 'var(--ink-3)' }}>{label}</div>
+      {note && <div className="text-[13px] sm:text-[14px] mt-1" style={{ color: 'var(--ink-2)' }}>{note}</div>}
       {delta !== undefined && <div className="text-[12.5px] mt-0.5" style={{ color: 'var(--ink-3)' }}>vs. 30 dias atrás</div>}
     </div>
   );
@@ -485,21 +278,21 @@ async function loadPropostasPendentes(user: Awaited<ReturnType<typeof getCurrent
   if (user.perfil === 'prefeito') {
     return prisma.proposta.findMany({
       where: { status: 'pendente', proximoRevisor: 'prefeito' },
-      include: { autor: true },
+      include: { autor: { select: { nome: true } } },
       orderBy: { criadoEm: 'desc' }
     });
   }
   if (user.perfil === 'secretario') {
     return prisma.proposta.findMany({
       where: { status: 'pendente', proximoRevisor: 'secretario', secretariaDonaId: { in: secIds } },
-      include: { autor: true },
+      include: { autor: { select: { nome: true } } },
       orderBy: { criadoEm: 'desc' }
     });
   }
   if (user.perfil === 'chefe') {
     return prisma.proposta.findMany({
       where: { status: 'pendente', proximoRevisor: 'chefe', divisaoOrigemId: { in: divIds } },
-      include: { autor: true },
+      include: { autor: { select: { nome: true } } },
       orderBy: { criadoEm: 'desc' }
     });
   }
@@ -540,7 +333,7 @@ async function loadPropostasResolvidasDoAutor(user: Awaited<ReturnType<typeof ge
     propostas.map(p => p.aprovadaPor ?? p.rejeitadaPor).filter(Boolean) as string[]
   ));
   const users = userIds.length
-    ? await prisma.usuario.findMany({ where: { id: { in: userIds } } })
+    ? await prisma.usuario.findMany({ where: { id: { in: userIds } }, select: { id: true, nome: true } })
     : [];
   const userMap = new Map(users.map(u => [u.id, u]));
 

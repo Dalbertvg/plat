@@ -2,10 +2,16 @@ import { prisma } from '@/lib/db';
 import { getCurrentUser } from '@/lib/session';
 import { fmtDateTime } from '@/lib/format';
 import type { Prisma } from '@prisma/client';
+import { lembrar } from '@/lib/cache-memoria';
 
 export const dynamic = 'force-dynamic';
 
-type SP = { tag?: string; entidade?: string; ator?: string };
+const POR_PAGINA = 100;
+// Tipos, entidades e atores novos são raros: as opções dos filtros podem
+// ficar até 2 minutos defasadas. Os eventos da tabela são sempre atuais.
+const VALIDADE_OPCOES_MS = 2 * 60 * 1000;
+
+type SP = { tag?: string; entidade?: string; ator?: string; pagina?: string };
 
 export default async function AuditoriaPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await getCurrentUser();
@@ -15,6 +21,7 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
   const filterTag = sp.tag ?? 'all';
   const filterEntidade = sp.entidade ?? 'all';
   const filterAtor = sp.ator ?? 'all';
+  const pagina = Math.min(1000, Math.max(1, Math.floor(Number(sp.pagina)) || 1));
 
   // RBAC de leitura da auditoria — dois critérios se combinam por OR:
   // (1) o ATOR está sob meu escopo hierárquico, OU
@@ -99,48 +106,38 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
     where.atorId = filterAtor;
   }
 
-  const [entries, allTags, allEntidades, atores] = await Promise.all([
+  const [maisUm, { allTags, allEntidades, atores }] = await Promise.all([
     prisma.auditoria.findMany({
       where,
       orderBy: { quando: 'desc' },
-      take: 300
+      skip: (pagina - 1) * POR_PAGINA,
+      take: POR_PAGINA + 1,
+      select: { id: true, quando: true, atorNome: true, perfil: true, msg: true, tag: true, entidade: true, entidadeId: true }
     }),
-    prisma.auditoria.findMany({
-      where: escopoWhere,
-      distinct: ['tag'],
-      select: { tag: true },
-      orderBy: { tag: 'asc' }
-    }),
-    prisma.auditoria.findMany({
-      where: escopoWhere,
-      distinct: ['entidade'],
-      select: { entidade: true },
-      orderBy: { entidade: 'asc' }
-    }),
-    // Atores no seletor de filtro: quem já apareceu na feed sob meu escopo.
-    (async () => {
-      const distinctAtores = await prisma.auditoria.findMany({
-        where: escopoWhere,
-        distinct: ['atorId'],
-        select: { atorId: true }
-      });
-      const ids = distinctAtores.map(x => x.atorId);
-      return ids.length
-        ? prisma.usuario.findMany({
-            where: { id: { in: ids } },
-            select: { id: true, nome: true },
-            orderBy: { nome: 'asc' }
-          })
-        : [];
-    })()
+    // O escopo depende só do usuário, então a chave do cache é o id dele.
+    lembrar(`auditoria:opcoes:${user.id}`, VALIDADE_OPCOES_MS, () => opcoesDosFiltros(escopoWhere))
   ]);
+  const temMais = maisUm.length > POR_PAGINA;
+  const entries = maisUm.slice(0, POR_PAGINA);
+
+  const linkPagina = (p: number) => {
+    const q = new URLSearchParams();
+    if (filterTag !== 'all') q.set('tag', filterTag);
+    if (filterEntidade !== 'all') q.set('entidade', filterEntidade);
+    if (filterAtor !== 'all') q.set('ator', filterAtor);
+    if (p > 1) q.set('pagina', String(p));
+    const qs = q.toString();
+    return qs ? `/auditoria?${qs}` : '/auditoria';
+  };
 
   return (
     <>
       <div className="mb-6">
-        <h1 className="font-display text-[28px] leading-tight m-0" style={{ letterSpacing: '-0.015em' }}>Auditoria</h1>
+        <h1 className="font-display text-[24px] sm:text-[28px] leading-tight m-0" style={{ letterSpacing: '-0.015em' }}>Auditoria</h1>
         <p className="text-[13.5px] mt-1 m-0" style={{ color: 'var(--ink-3)' }}>
-          {entries.length === 300 ? 'Últimos 300 eventos' : `${entries.length} eventos`} — cada movimento fica registrado.
+          {pagina === 1 && !temMais
+            ? `${entries.length} eventos`
+            : `Eventos ${(pagina - 1) * POR_PAGINA + (entries.length ? 1 : 0)}–${(pagina - 1) * POR_PAGINA + entries.length}, do mais recente para o mais antigo`} — cada movimento fica registrado.
         </p>
       </div>
 
@@ -152,33 +149,36 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
         </div>
       )}
 
-      <form className="flex gap-2 mb-4 items-center flex-wrap">
-        <span className="font-mono text-[10px] tracking-widest uppercase" style={{ color: 'var(--ink-3)' }}>Filtros:</span>
-        <select name="tag" defaultValue={filterTag} className="select" style={{ width: 'auto', padding: '6px 10px', fontSize: '12.5px' }}>
+      {/* Filtros e paginação usam navegação normal do navegador (form GET / <a>),
+          não o roteador do Next: com loading.tsx, trocar só os parâmetros da mesma
+          tela pela segunda vez seguida era descartado pelo roteador (Next 15.5). */}
+      <form action="/auditoria" className="filtros">
+        <span className="filtros-largo font-mono text-[10px] tracking-widest uppercase" style={{ color: 'var(--ink-3)' }}>Filtros:</span>
+        <select name="tag" defaultValue={filterTag} className="select select-filtro">
           <option value="all">Todos os tipos</option>
           {allTags.map(t => <option key={t.tag} value={t.tag}>{t.tag}</option>)}
         </select>
-        <select name="entidade" defaultValue={filterEntidade} className="select" style={{ width: 'auto', padding: '6px 10px', fontSize: '12.5px' }}>
+        <select name="entidade" defaultValue={filterEntidade} className="select select-filtro">
           <option value="all">Todas as entidades</option>
           {allEntidades.map(e => <option key={e.entidade} value={e.entidade}>{e.entidade}</option>)}
         </select>
-        <select name="ator" defaultValue={filterAtor} className="select" style={{ width: 'auto', padding: '6px 10px', fontSize: '12.5px' }}>
+        <select name="ator" defaultValue={filterAtor} className="select select-filtro">
           <option value="all">Todos os atores</option>
           {atores.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
         </select>
-        <button type="submit" className="btn btn-sm">Aplicar</button>
+        <button type="submit" className="btn btn-sm justify-center">Aplicar</button>
       </form>
 
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--rule)' }}>
+      <div className="tabela-rolavel" style={{ background: 'var(--panel)', border: '1px solid var(--rule)' }}>
         <table className="tbl">
           <thead>
             <tr>
-              <th style={{ width: 140 }}>Quando</th>
-              <th style={{ width: 180 }}>Ator</th>
-              <th style={{ width: 120 }}>Perfil</th>
+              <th className="w-[88px] sm:w-[140px]">Quando</th>
+              <th className="hidden md:table-cell" style={{ width: 180 }}>Ator</th>
+              <th className="hidden lg:table-cell" style={{ width: 120 }}>Perfil</th>
               <th>Evento</th>
-              <th style={{ width: 180 }}>Tag</th>
-              <th style={{ width: 140 }}>Entidade</th>
+              <th className="hidden xl:table-cell" style={{ width: 180 }}>Tag</th>
+              <th className="hidden xl:table-cell" style={{ width: 140 }}>Entidade</th>
             </tr>
           </thead>
           <tbody>
@@ -187,13 +187,22 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
                 <td className="text-[12px] tabular-nums" style={{ color: 'var(--ink-2)' }}>
                   {fmtDateTime(e.quando)}
                 </td>
-                <td className="font-medium">{e.atorNome}</td>
-                <td>
+                <td className="hidden md:table-cell font-medium">{e.atorNome}</td>
+                <td className="hidden lg:table-cell">
                   <span className={`pill ${pillForPerfil(e.perfil)}`}>{e.perfil}</span>
                 </td>
-                <td style={{ color: 'var(--ink-2)' }}>{e.msg}</td>
-                <td><code style={{ fontSize: 11 }}>{e.tag}</code></td>
-                <td className="text-[12px]" style={{ color: 'var(--ink-3)' }}>
+                <td style={{ color: 'var(--ink-2)' }}>
+                  {/* Telas estreitas: ator, tipo e entidade vêm junto do evento. */}
+                  <div className="md:hidden font-medium" style={{ color: 'var(--ink)' }}>
+                    {e.atorNome} <span className={`pill ${pillForPerfil(e.perfil)} ml-1`}>{e.perfil}</span>
+                  </div>
+                  {e.msg}
+                  <div className="xl:hidden text-[11.5px] mt-0.5" style={{ color: 'var(--ink-3)' }}>
+                    <code style={{ fontSize: 11 }}>{e.tag}</code> · {e.entidade}
+                  </div>
+                </td>
+                <td className="hidden xl:table-cell"><code style={{ fontSize: 11 }}>{e.tag}</code></td>
+                <td className="hidden xl:table-cell text-[12px]" style={{ color: 'var(--ink-3)' }}>
                   {e.entidade} · <code>{e.entidadeId}</code>
                 </td>
               </tr>
@@ -204,8 +213,41 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
           </tbody>
         </table>
       </div>
+
+      {(pagina > 1 || temMais) && (
+        <nav className="flex items-center justify-between gap-3 mt-4" aria-label="Paginação">
+          <span className="text-[13px]" style={{ color: 'var(--ink-3)' }}>Página {pagina}</span>
+          <div className="flex gap-1.5">
+            {pagina > 1 && <a href={linkPagina(pagina - 1)} className="btn btn-sm">← Mais recentes</a>}
+            {temMais && <a href={linkPagina(pagina + 1)} className="btn btn-sm">Mais antigos →</a>}
+          </div>
+        </nav>
+      )}
     </>
   );
+}
+
+// Opções dos três filtros numa consulta só, agrupada NO BANCO. (O `distinct`
+// do Prisma trazia a tabela inteira para a memória, três vezes por acesso — e a
+// auditoria é a tabela que mais cresce.) Uma linha por combinação existente de
+// tipo × entidade × ator: poucas centenas.
+async function opcoesDosFiltros(escopoWhere: Prisma.AuditoriaWhereInput | undefined) {
+  const combinacoes = await prisma.auditoria.groupBy({
+    by: ['tag', 'entidade', 'atorId'],
+    where: escopoWhere
+  });
+  const allTags = Array.from(new Set(combinacoes.map(c => c.tag))).sort().map(tag => ({ tag }));
+  const allEntidades = Array.from(new Set(combinacoes.map(c => c.entidade))).sort().map(entidade => ({ entidade }));
+  // Atores no seletor de filtro: quem já apareceu na feed sob meu escopo.
+  const atorIds = Array.from(new Set(combinacoes.map(c => c.atorId)));
+  const atores = atorIds.length
+    ? await prisma.usuario.findMany({
+        where: { id: { in: atorIds } },
+        select: { id: true, nome: true },
+        orderBy: { nome: 'asc' }
+      })
+    : [];
+  return { allTags, allEntidades, atores };
 }
 
 function pillForPerfil(perfil: string): string {

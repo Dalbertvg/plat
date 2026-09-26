@@ -12,7 +12,7 @@ export default async function OrganogramaPage() {
     prisma.secretaria.findMany({ orderBy: { nome: 'asc' } }),
     prisma.divisao.findMany({ orderBy: { nome: 'asc' } }),
     prisma.lotacao.findMany(),
-    prisma.usuario.findMany({ orderBy: { nome: 'asc' } })
+    prisma.usuario.findMany({ orderBy: { nome: 'asc' }, select: { id: true, nome: true, perfil: true } })
   ]);
 
   const readable = readableSecretariasOf(user, secretarias.map(s => s.id));
@@ -43,7 +43,7 @@ export default async function OrganogramaPage() {
   return (
     <>
       <div className="mb-6">
-        <h1 className="font-display text-[28px] leading-tight m-0" style={{ letterSpacing: '-0.015em' }}>Organograma</h1>
+        <h1 className="font-display text-[24px] sm:text-[28px] leading-tight m-0" style={{ letterSpacing: '-0.015em' }}>Organograma</h1>
         <p className="text-[13.5px] mt-1 m-0" style={{ color: 'var(--ink-3)' }}>
           {visSecs.length} {visSecs.length === 1 ? 'secretaria visível' : 'secretarias visíveis'} · {totalUsuariosVisiveis} pessoas lotadas.
         </p>
@@ -55,7 +55,7 @@ export default async function OrganogramaPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {visSecs.map(s => {
           const divs = divisoes.filter(d => d.secretariaId === s.id);
           const semDivisao = (lotacoesBySecretariaSemDivisao.get(s.id) ?? [])

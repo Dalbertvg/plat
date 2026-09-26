@@ -102,7 +102,7 @@ export async function submeterProposta(formData: FormData) {
   }
 
   const proximoRevisor = proximoRevisorDe(user, parsed.secretariaDonaId);
-  const atorNome = (await prisma.usuario.findUnique({ where: { id: user.id } }))?.nome ?? '?';
+  const atorNome = user.nome;
   const id = 'PROP-' + Date.now().toString(36).toUpperCase();
 
   await prisma.proposta.create({
@@ -175,7 +175,7 @@ export async function aprovarProposta(formData: FormData) {
     throw new RBACError('Fluxo de aprovação incompatível com seu perfil.');
   }
 
-  const atorNome = (await prisma.usuario.findUnique({ where: { id: user.id } }))?.nome ?? '?';
+  const atorNome = user.nome;
 
   if (novoStatus === 'aprovada') {
     await prisma.proposta.update({
@@ -236,7 +236,7 @@ export async function rejeitarProposta(formData: FormData) {
   if (p.status !== 'pendente') throw new Error('Esta proposta já foi decidida.');
   if (!podeDecidirAgora(user, p)) throw new RBACError('Só o revisor atual pode rejeitar esta proposta.');
 
-  const atorNome = (await prisma.usuario.findUnique({ where: { id: user.id } }))?.nome ?? '?';
+  const atorNome = user.nome;
 
   await prisma.proposta.update({
     where: { id: propostaId },
@@ -275,7 +275,7 @@ export async function responderProposta(formData: FormData) {
     throw new RBACError('Você não tem acesso à conversa desta proposta.');
   }
 
-  const atorNome = (await prisma.usuario.findUnique({ where: { id: user.id } }))?.nome ?? '?';
+  const atorNome = user.nome;
 
   await prisma.comentario.create({
     data: { propostaId, autorId: user.id, texto: texto.slice(0, 1000) }

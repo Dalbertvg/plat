@@ -60,30 +60,32 @@ export async function updateAcao(formData: FormData) {
     ultJustQuando: new Date()
   };
 
-  await prisma.acao.update({ where: { id: parsed.acaoId }, data: patch });
-
-  // Snapshot histórico: só grava se o valor mudou (evita entradas duplicadas).
-  if (parsed.situacaoAtual !== acao.situacaoAtual) {
-    await prisma.acaoSnapshot.create({
+  // Tudo ou nada: a situação nova, o snapshot e o registro de auditoria são
+  // gravados juntos — uma falha no meio não deixa a ação alterada sem rastro.
+  await prisma.$transaction([
+    prisma.acao.update({ where: { id: parsed.acaoId }, data: patch }),
+    // Snapshot histórico: só grava se o valor mudou (evita entradas duplicadas).
+    ...(parsed.situacaoAtual !== acao.situacaoAtual
+      ? [prisma.acaoSnapshot.create({
+          data: {
+            acaoId: acao.id,
+            situacaoAtual: parsed.situacaoAtual,
+            peso: acao.peso
+          }
+        })]
+      : []),
+    prisma.auditoria.create({
       data: {
-        acaoId: acao.id,
-        situacaoAtual: parsed.situacaoAtual,
-        peso: acao.peso
+        atorId: user.id,
+        atorNome: user.nome,
+        perfil: user.perfil,
+        msg: `atualizou ação "${acao.nome}" (${parsed.justificativa.slice(0, 40)})`,
+        tag: 'ACAO:UPDATE',
+        entidade: 'acao',
+        entidadeId: acao.id
       }
-    });
-  }
-
-  await prisma.auditoria.create({
-    data: {
-      atorId: user.id,
-      atorNome: (await prisma.usuario.findUnique({ where: { id: user.id } }))?.nome ?? '?',
-      perfil: user.perfil,
-      msg: `atualizou ação "${acao.nome}" (${parsed.justificativa.slice(0, 40)})`,
-      tag: 'ACAO:UPDATE',
-      entidade: 'acao',
-      entidadeId: acao.id
-    }
-  });
+    })
+  ]);
 
   revalidatePath(`/metas/${acao.metaCPId}`);
   revalidatePath('/painel');

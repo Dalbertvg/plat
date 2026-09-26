@@ -5,9 +5,10 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        display: ['Fraunces', 'Times New Roman', 'serif'],
-        sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
-        mono: ['IBM Plex Mono', 'monospace']
+        // Variáveis definidas por next/font em src/app/layout.tsx.
+        display: ['var(--font-display)', 'Times New Roman', 'serif'],
+        sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-mono)', 'monospace']
       },
       colors: {
         paper: 'var(--paper)',
