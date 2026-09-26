@@ -14,15 +14,16 @@ function aplicarNaPagina(t: Tema) {
   else document.documentElement.removeAttribute('data-theme');
 }
 
-// Área "Aparência" do menu: mostra o tema atual e, ao abrir, as opções. A
-// troca vale na hora e é gravada no usuário — acompanha o login em qualquer
-// computador ou celular.
+// Área "Aparência" do menu. Recolhida: uma linha "Tema · <nome>". Aberta: uma
+// fileira de amostras de cor. A troca vale na hora e é gravada no usuário —
+// acompanha o login em qualquer computador ou celular.
 export function SeletorTema({ temaInicial }: { temaInicial: Tema }) {
   const [tema, setTema] = useState<Tema>(temaInicial);
   const [aberto, setAberto] = useState(false);
+  const [emFoco, setEmFoco] = useState<Tema | null>(null);
   const [aviso, setAviso] = useState<'salvo' | 'erro' | null>(null);
   const [salvando, startSalvar] = useTransition();
-  const idLista = useId();
+  const idPainel = useId();
 
   useEffect(() => {
     const sincronizar = (e: Event) => setTema((e as CustomEvent<Tema>).detail);
@@ -32,7 +33,7 @@ export function SeletorTema({ temaInicial }: { temaInicial: Tema }) {
 
   useEffect(() => {
     if (aviso !== 'salvo') return;
-    const t = setTimeout(() => setAviso(null), 2500);
+    const t = setTimeout(() => setAviso(null), 2000);
     return () => clearTimeout(t);
   }, [aviso]);
 
@@ -56,78 +57,91 @@ export function SeletorTema({ temaInicial }: { temaInicial: Tema }) {
   };
 
   const atual = TEMAS.find(t => t.key === tema) ?? TEMAS[0];
+  // Nome exibido sob as amostras: o que está sob o mouse/foco, senão o atual.
+  const mostrado = TEMAS.find(t => t.key === emFoco) ?? atual;
 
   return (
-    <div className="px-5 pt-3 pb-1">
-      <div className="pb-1.5 font-mono text-[11.5px] tracking-widest uppercase" style={{ color: 'var(--ink-3)' }}>
+    <div className="pb-1">
+      <div className="px-5 pt-3 pb-2 font-mono text-[11.5px] tracking-widest uppercase" style={{ color: 'var(--ink-3)' }}>
         Aparência
       </div>
+
       <button
         type="button"
-        className="w-full flex items-center gap-2.5 py-2 text-left text-[15px] hover:opacity-80"
-        style={{ color: 'var(--ink-2)' }}
+        className="w-full flex items-center gap-3 px-5 py-2.5 text-[16px] text-left border-l-2 hover:opacity-80"
+        style={{ color: 'var(--ink-2)', borderLeftColor: 'transparent' }}
         aria-expanded={aberto}
-        aria-controls={idLista}
+        aria-controls={idPainel}
         onClick={() => setAberto(v => !v)}
       >
-        <Amostra cores={atual.cores} />
-        <span className="flex-1 min-w-0 truncate">
-          Tema: <b className="font-medium" style={{ color: 'var(--ink)' }}>{atual.label}</b>
-        </span>
-        <span aria-hidden className="text-[12px]" style={{ color: 'var(--ink-3)' }}>{aberto ? '▲' : '▼'}</span>
+        <Amostra cores={atual.cores} tamanho={16} />
+        <span className="flex-1">Tema</span>
+        <span className="text-[13px] truncate" style={{ color: 'var(--ink-3)' }}>{atual.label}</span>
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.6"
+             style={{ color: 'var(--ink-3)', flex: 'none', transform: aberto ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+          <path d="M2.5 4.5L6 8l3.5-3.5" />
+        </svg>
       </button>
 
-      <div id={idLista} role="radiogroup" aria-label="Tema de cores" className="grid gap-1 pb-1" hidden={!aberto}>
-        {TEMAS.map(t => {
-          const ativo = t.key === tema;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              role="radio"
-              aria-checked={ativo}
-              onClick={() => trocarPara(t.key)}
-              className="flex items-center gap-2.5 px-2 py-1.5 rounded text-left"
-              style={{
-                background: ativo ? 'rgba(166,119,53,0.12)' : 'transparent',
-                border: `1px solid ${ativo ? 'var(--brass)' : 'transparent'}`,
-                cursor: salvando ? 'progress' : 'pointer'
-              }}
-            >
-              <Amostra cores={t.cores} />
-              <span className="flex-1 min-w-0">
-                <span className="block text-[14px] font-medium leading-tight" style={{ color: 'var(--ink)' }}>
-                  {t.label}
-                </span>
-                <span className="block text-[11.5px] leading-snug mt-0.5" style={{ color: 'var(--ink-3)' }}>
-                  {t.hint}{t.key === TEMA_PADRAO && ' · padrão'}
-                </span>
-              </span>
-              {ativo && <span aria-hidden className="text-[13px]" style={{ color: 'var(--brass)' }}>✓</span>}
-            </button>
-          );
-        })}
-      </div>
-
-      <div aria-live="polite" className="text-[11.5px] leading-snug" style={{ minHeight: '1.2em', color: aviso === 'erro' ? 'var(--late)' : 'var(--ok)' }}>
-        {salvando ? <span style={{ color: 'var(--ink-3)' }}>Salvando…</span>
-          : aviso === 'salvo' ? '✓ Salvo no seu login'
-          : aviso === 'erro' ? 'Não foi possível salvar. Tente de novo.'
-          : ''}
-      </div>
+      {/* Renderizado só quando aberto: nada escondido por CSS que possa "vazar". */}
+      {aberto && (
+        <div id={idPainel} className="px-5 pb-2" onMouseLeave={() => setEmFoco(null)}>
+          <div role="radiogroup" aria-label="Tema de cores" className="flex items-center gap-1.5 pt-1">
+            {TEMAS.map(t => {
+              const ativo = t.key === tema;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={ativo}
+                  aria-label={t.key === TEMA_PADRAO ? `${t.label} (padrão)` : t.label}
+                  title={t.label}
+                  onClick={() => trocarPara(t.key)}
+                  onMouseEnter={() => setEmFoco(t.key)}
+                  onFocus={() => setEmFoco(t.key)}
+                  onBlur={() => setEmFoco(null)}
+                  className="grid place-items-center rounded-full"
+                  style={{
+                    width: 32, height: 32, flex: 'none',
+                    border: `2px solid ${ativo ? 'var(--brass)' : 'transparent'}`,
+                    cursor: salvando ? 'progress' : 'pointer'
+                  }}
+                >
+                  <Amostra cores={t.cores} tamanho={24} />
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-1.5 text-[12.5px] leading-snug" style={{ color: 'var(--ink-3)' }}>
+            <span style={{ color: 'var(--ink-2)', fontWeight: 500 }}>{mostrado.label}</span>
+            {' · '}{mostrado.hint}{mostrado.key === TEMA_PADRAO && ' (padrão)'}
+          </div>
+          <div aria-live="polite" className="text-[12px] mt-0.5" style={{ minHeight: '1.1em', color: aviso === 'erro' ? 'var(--late)' : 'var(--ok)' }}>
+            {salvando ? <span style={{ color: 'var(--ink-3)' }}>Salvando…</span>
+              : aviso === 'salvo' ? '✓ Salvo no seu login'
+              : aviso === 'erro' ? 'Não foi possível salvar.'
+              : ''}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// Amostra da paleta: fundo · barra superior · destaque.
-function Amostra({ cores }: { cores: readonly string[] }) {
+// Amostra redonda da paleta: fundo, barra superior e destaque.
+function Amostra({ cores, tamanho }: { cores: readonly string[]; tamanho: number }) {
+  const [fundo, superficie, destaque] = cores;
   return (
     <span
       aria-hidden
-      className="inline-flex overflow-hidden rounded-sm flex-none"
-      style={{ width: 30, height: 18, border: '1px solid var(--rule-strong)' }}
-    >
-      {cores.map((c, i) => <span key={i} style={{ flex: i === 0 ? 1.4 : 1, background: c }} />)}
-    </span>
+      className="inline-block rounded-full flex-none"
+      style={{
+        width: tamanho,
+        height: tamanho,
+        background: `conic-gradient(from 225deg, ${fundo} 0 50%, ${superficie} 50% 80%, ${destaque} 80% 100%)`,
+        boxShadow: 'inset 0 0 0 1px var(--rule-strong)'
+      }}
+    />
   );
 }

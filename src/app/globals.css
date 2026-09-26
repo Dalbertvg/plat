@@ -58,6 +58,10 @@
 
 * { box-sizing: border-box; }
 
+/* O atributo hidden sempre esconde, mesmo com classe de display (grid, flex…)
+ * no mesmo elemento — sem isto a classe vence e o elemento aparece. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--paper);

@@ -1022,7 +1022,9 @@ colunas secundárias com o padrão acima e teste em 360 px.
 - **Padrão: Azul Cubic** (`TEMA_PADRAO` em `src/lib/temas.ts`) — vale na tela de login e para
   quem nunca escolheu (`Usuario.tema = null`).
 - **Onde trocar**: área **"Aparência"** no menu (barra lateral ≥ 1024 px; gaveta ☰ no celular/tablet),
-  componente `SeletorTema.tsx`. A troca aplica na hora e é gravada por `salvarTema`
+  componente `SeletorTema.tsx`. Recolhida por padrão: uma linha "Tema · <nome>"; ao clicar, abre
+  uma fileira de 5 amostras redondas (anel na escolhida; nome e descrição abaixo). O painel aberto é
+  renderizado só quando aberto — não usar `hidden` junto com classe de display (ver abaixo). A troca aplica na hora e é gravada por `salvarTema`
   (`actions/preferencias.ts`: valida com Zod, só altera o próprio usuário; não vai para a
   auditoria por ser preferência visual). Se a gravação falhar, o tema volta ao anterior e avisa.
 - **Acompanha o login**: fica no banco, não no navegador — vale em qualquer computador ou celular.
@@ -1034,6 +1036,9 @@ colunas secundárias com o padrão acima e teste em 360 px.
   `:root[data-theme="novo"]` em `globals.css` com todas as variáveis + item em `TEMAS`.
 - Substituiu o antigo `LayoutPicker` (faixa no topo + botão flutuante, salvo só em
   `localStorage`). As chaves antigas `app.layout*` no navegador são ignoradas.
+- **`[hidden] { display: none !important }`** em `globals.css`: sem isso, um elemento com o
+  atributo `hidden` e uma classe como `grid`/`flex` continua visível (a classe vence). Foi o que
+  deixou a 1ª versão do seletor sempre aberta.
 - Migração `20260926120000_tema_do_usuario`: só `ADD COLUMN "tema" TEXT` (passa pela trava).
 - `Iniciar Plano de Metas.bat` agora roda `prisma generate` depois das migrações, para o
   ambiente local reconhecer campos novos do schema.
